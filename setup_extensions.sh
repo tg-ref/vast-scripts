@@ -19,13 +19,38 @@ cd "$CUSTOM_NODES_DIR"
 
 # Clean reinstall (ensures 100% installation success)
 log "🧹 Cleaning possibly incomplete extensions..."
-rm -rf ComfyUI-Impact-Pack ComfyUI-WAN-Suite comfyui-nodes-base comfyui-nodes-rgthree ComfyUI_ControlNet ComfyUI-VideoHelperSuite ComfyUI-WanVideoWrapper
+rm -rf $CUSTOM_NODES_DIR/*
 
-install_extension() {
+install_extension_tarball() {
+    local name="$1"
+    local tar_url="$2"
+
+    log "📦 Downloading and extracting $name from tarball..."
+    curl -L "$tar_url" -o "/tmp/${name}.tar.gz"
+    mkdir -p "$CUSTOM_NODES_DIR/$name"
+    tar -xzf "/tmp/${name}.tar.gz" --strip-components=1 -C "$CUSTOM_NODES_DIR/$name"
+
+    if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
+        log "📦 Installing Python dependencies for $name"
+        python3 -m pip install -r "$CUSTOM_NODES_DIR/$name/requirements.txt"
+    fi
+
+    if [ -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
+        log "✅ $name installed successfully"
+    else
+        log "⚠️  WARNING: $name may be incomplete (missing __init__.py)"
+    fi
+}
+
+install_extension_git() {
     local name="$1"
     local repo_url="$2"
 
     log "🔽 Cloning $name from $repo_url"
+    if [ -d "$CUSTOM_NODES_DIR/$name" ]; then
+        log "🧹 Removing existing directory for $name"
+        rm -rf "$CUSTOM_NODES_DIR/$name"
+    fi
     git clone "$repo_url" "$CUSTOM_NODES_DIR/$name"
 
     if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
@@ -41,17 +66,17 @@ install_extension() {
 }
 
 log "🔧 Installing core extensions..."
-install_extension "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
-install_extension "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
-install_extension "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
+install_extension_git "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
+install_extension_git "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
+install_extension_tarball "ComfyUI-WAN-Suite" "https://codeload.github.com/WASasquatch/ComfyUI-WAN-Suite/tar.gz/refs/heads/main"
 
 log "✨ Installing additional extensions..."
-install_extension "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
-install_extension "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
-install_extension "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree.git"
-install_extension "ComfyUI_ControlNet" "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
-install_extension "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
-install_extension "ComfyUI-WanVideoWrapper" "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+install_extension_git "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
+install_extension_git "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
+install_extension_git "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree.git"
+install_extension_git "ComfyUI_ControlNet" "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
+install_extension_git "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+install_extension_git "ComfyUI-WanVideoWrapper" "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
 
 log "📚 Installing global Python dependencies for extensions..."
 python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors
