@@ -1,11 +1,11 @@
 #!/bin/bash
-# Robust ComfyUI Startup Script for Vast.ai
+# Robust ComfyUI Startup Script for Vast.ai Docker Environments
+# https://github.com/DnsSrinath/vast-scripts
 
 # Logging function
 log() {
-    local message="$1"
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo "[${timestamp}] $message" | tee -a /workspace/comfyui_startup.log
+    echo "[${timestamp}] $1" | tee -a /workspace/comfyui_startup.log
 }
 
 # Error handling function
@@ -21,10 +21,10 @@ cd /workspace/ComfyUI || error_exit "Cannot change to ComfyUI directory"
 log "Starting ComfyUI startup script..."
 
 # Detect GPU availability
-GPU_AVAILABLE=false
 if command -v nvidia-smi &> /dev/null; then
     log "NVIDIA GPU detected"
-    GPU_AVAILABLE=true
+    # Log GPU information
+    nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 else
     log "No NVIDIA GPU detected. Running in CPU mode."
 fi
@@ -38,96 +38,95 @@ sleep 3
 log "Preparing ComfyUI startup configuration..."
 
 # Create extra arguments file
-echo "--listen 0.0.0.0 --port 8188 --enable-cors-header" > extra_args.txt
-chmod 755 extra_args.txt
+echo "--listen 0.0.0.0 --port 8188 --enable-cors-header" > /workspace/ComfyUI/extra_args.txt
+chmod 755 /workspace/ComfyUI/extra_args.txt
 
-# Create portal configuration
-mkdir -p /etc
-cat > /etc/portal.yaml << EOL
-instance_portal:
-  app_host: localhost
-  app_port: 11111
-  tls_port: 1111
-  app_name: Instance Portal
-comfyui:
-  app_host: localhost
-  app_port: 8188
-  tls_port: 8188
-  app_name: ComfyUI
-EOL
+# Install or check dependencies
+log "Checking dependencies..."
+python3 -m pip install torch torchvision torchaudio xformers --quiet || \
+    log "Warning: Some dependencies could not be installed, but ComfyUI may still work."
 
-# Install additional dependencies if GPU is available
-if [ "$GPU_AVAILABLE" = true ]; then
-    log "Installing GPU-specific dependencies..."
-    python3 -m pip install torch torchvision torchaudio xformers || \
-        log "Warning: Failed to install GPU dependencies"
-fi
-
-# Create persistent startup script
-log "Creating persistent startup wrapper..."
-cat > /workspace/comfyui_persistent_start.sh << 'PERSISTENT_EOF'
+# Create persistent startup script if it doesn't exist
+if [ ! -f "/workspace/comfyui_persistent_start.sh" ]; then
+    log "Creating persistent startup script..."
+    cat > /workspace/comfyui_persistent_start.sh << 'EOL'
 #!/bin/bash
-# Persistent ComfyUI Startup Wrapper
+# Persistent ComfyUI Startup Script for Docker Environments
 
+# Logging function
 log() {
-    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1" >> /workspace/comfyui_persistent.log
+    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    local message="[${timestamp}] $1"
+    echo "$message" >> /workspace/comfyui_persistent.log
+    echo "$message"
 }
 
+# Main function to start ComfyUI
 start_comfyui() {
-    cd /workspace/ComfyUI
+    cd /workspace/ComfyUI || {
+        log "ERROR: ComfyUI directory not found"
+        return 1
+    }
     
-    # Kill existing processes
+    # Kill any existing ComfyUI processes
     pkill -f "python.*main.py" || true
+    sleep 2
     
     # Start ComfyUI
-    nohup python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header >> /workspace/comfyui_output.log 2>&1 &
+    log "Starting ComfyUI..."
+    nohup python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header > /workspace/comfyui_output.log 2>&1 &
     
-    # Wait and verify
-    sleep 10
-    
+    # Check if process started successfully
+    sleep 5
     if pgrep -f "python.*main.py" > /dev/null; then
         log "ComfyUI started successfully"
+        log "ComfyUI is accessible at: http://$(hostname -I | awk '{print $1}'):8188"
+        return 0
     else
-        log "Failed to start ComfyUI"
-    fi
+        log "ERROR: Failed to start ComfyUI"
+        return 1
+    }
 }
 
-# Restart loop
-while true; do
-    start_comfyui
-    sleep 60
-done
-PERSISTENT_EOF
+# Monitor and restart if necessary
+monitor_and_restart() {
+    while true; do
+        if ! pgrep -f "python.*main.py" > /dev/null; then
+            log "ComfyUI is not running. Attempting to restart..."
+            start_comfyui
+        fi
+        sleep 60
+    done
+}
 
-chmod +x /workspace/comfyui_persistent_start.sh
+# Start ComfyUI initially
+start_comfyui
 
-# Create systemd service for persistent startup
-log "Creating systemd service..."
-cat > /etc/systemd/system/comfyui.service << 'SYSTEMD_EOF'
-[Unit]
-Description=Persistent ComfyUI Service
-After=network.target
+# Start the monitoring loop
+monitor_and_restart
+EOL
+    chmod +x /workspace/comfyui_persistent_start.sh
+fi
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/workspace
-ExecStart=/workspace/comfyui_persistent_start.sh
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
-
-# Reload systemd, enable and start service
-systemctl daemon-reload
-systemctl enable comfyui.service
-systemctl start comfyui.service
-
-# Final startup and verification
-log "ComfyUI startup process complete"
-log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
-
-# Provide final status check
-systemctl status comfyui.service
+# Choose startup mode based on argument
+if [ "$1" == "background" ]; then
+    # Start in background mode with monitoring
+    log "Starting ComfyUI in background mode with automatic monitoring..."
+    nohup /workspace/comfyui_persistent_start.sh > /workspace/comfyui_wrapper.log 2>&1 &
+    
+    # Wait a moment and check if it started
+    sleep 5
+    if pgrep -f "python.*main.py" > /dev/null; then
+        log "ComfyUI started successfully in background mode"
+        log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
+        log "View logs with: tail -f /workspace/comfyui_output.log"
+    else
+        log "WARNING: ComfyUI may have failed to start. Check logs."
+        log "View logs with: tail -f /workspace/comfyui_wrapper.log"
+    fi
+else
+    # Start in foreground mode
+    log "Starting ComfyUI in foreground mode..."
+    log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
+    python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header
+fi
