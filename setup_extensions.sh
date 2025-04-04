@@ -1,6 +1,6 @@
 #!/bin/bash
 # 🚀 Advanced ComfyUI Extensions Installer
-# Robust cloning with multiple fallback strategies
+# Robust installation with multiple fallback mechanisms
 
 set -euo pipefail
 
@@ -22,51 +22,72 @@ CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
 # Create directories
 mkdir -p "$CUSTOM_NODES_DIR"
+mkdir -p /tmp/extensions
 
 # Cleanup function
 cleanup() {
     log "🧹 Cleaning up previous extensions..."
     rm -rf "$CUSTOM_NODES_DIR"/*
+    rm -rf /tmp/extensions/*
 }
 
-# Manual download fallback for challenging repositories
-manual_download_extension() {
+# Advanced manual download function
+advanced_download_extension() {
     local name="$1"
     local repo_url="$2"
     local branch="${3:-main}"
-    local download_url=""
+    local download_urls=(
+        # Primary download URL
+        "https://github.com/$(echo "$repo_url" | cut -d'/' -f4-5 | sed 's/\.git$//')/archive/refs/heads/${branch}.zip"
+        
+        # Alternate download URL formats
+        "https://codeload.github.com/$(echo "$repo_url" | cut -d'/' -f4-5 | sed 's/\.git$//')/zip/refs/heads/${branch}"
+    )
 
-    log "🚨 Attempting manual download for $name"
+    log "🚨 Attempting advanced download for $name"
 
-    # Generate download URL for GitHub repository
-    if [[ "$repo_url" == *"github.com"* ]]; then
-        download_url="${repo_url%\.git}/archive/refs/heads/${branch}.zip"
-    else
-        error_exit "Unsupported repository type for manual download"
-    fi
+    # Try multiple download methods
+    for download_url in "${download_urls[@]}"; do
+        log "📦 Trying to download from $download_url"
+        
+        # Clean previous download attempts
+        rm -f "/tmp/extensions/${name}.zip"
+        
+        # Try downloading with multiple tools
+        if curl -L -f -o "/tmp/extensions/${name}.zip" "$download_url"; then
+            # Verify download
+            if [ ! -s "/tmp/extensions/${name}.zip" ]; then
+                log "⚠️ Downloaded file is empty. Trying next URL..."
+                continue
+            fi
 
-    # Download and extract
-    log "📦 Downloading from $download_url"
-    if ! curl -L -o "/tmp/${name}.zip" "$download_url"; then
-        error_exit "Failed to download $name"
-    fi
+            # Try to unzip with multiple methods
+            if unzip -q "/tmp/extensions/${name}.zip" -d "/tmp/extensions"; then
+                # Find and move extracted directory
+                extracted_dir=$(find "/tmp/extensions" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
+                if [ -n "$extracted_dir" ]; then
+                    mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
+                    log "✅ Successfully downloaded and extracted $name"
+                    return 0
+                fi
+            fi
 
-    # Extract to custom nodes directory
-    if ! unzip -q "/tmp/${name}.zip" -d "$CUSTOM_NODES_DIR"; then
-        error_exit "Failed to extract $name"
-    fi
+            # Fallback extraction method
+            if tar -xf "/tmp/extensions/${name}.zip" -C "/tmp/extensions"; then
+                extracted_dir=$(find "/tmp/extensions" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
+                if [ -n "$extracted_dir" ]; then
+                    mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
+                    log "✅ Successfully downloaded and extracted $name using tar"
+                    return 0
+                fi
+            fi
+        fi
+    done
 
-    # Rename extracted directory to match extension name
-    extracted_dir=$(find "$CUSTOM_NODES_DIR" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
-    if [ -n "$extracted_dir" ]; then
-        mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
-    fi
-
-    # Clean up
-    rm "/tmp/${name}.zip"
+    error_exit "Failed to download $name using all available methods"
 }
 
-# Extension installation function with advanced fallback
+# Extension installation function
 install_extension() {
     local name="$1"
     local repo_url="$2"
@@ -75,7 +96,7 @@ install_extension() {
 
     log "🔽 Attempting to install $name from $repo_url"
 
-    # Clone strategies array (most specific to least specific)
+    # Clone strategies array
     local clone_strategies=(
         # Direct HTTPS clone
         "git clone --depth 1 -b $branch $repo_url $CUSTOM_NODES_DIR/$name"
@@ -85,9 +106,6 @@ install_extension() {
         
         # Convert SSH to HTTPS
         "git clone --depth 1 -b $branch $(echo $repo_url | sed -e 's/git@github\.com:/https:\/\/github.com\//' -e 's/\.git$//')"
-        
-        # HTTP fallback
-        "git clone --depth 1 -b $branch $(echo $repo_url | sed 's/https:\/\//http:\/\//')"
     )
 
     # Try each clone strategy
@@ -100,10 +118,10 @@ install_extension() {
         fi
     done
 
-    # If all clone strategies fail, attempt manual download
+    # If all clone strategies fail, attempt advanced download
     if [ "$clone_success" = false ]; then
-        log "❌ Clone strategies failed. Attempting manual download..."
-        manual_download_extension "$name" "$repo_url" "$branch"
+        log "❌ Clone strategies failed. Attempting advanced download..."
+        advanced_download_extension "$name" "$repo_url" "$branch"
     fi
 
     # Install Python dependencies
@@ -115,7 +133,7 @@ install_extension() {
     fi
 
     # Verify installation
-    if [ ! -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
+    if [ ! -f "$CUSTOM_NODES_DIR/$name/__init__.py" ] && [ ! -f "$CUSTOM_NODES_DIR/$name"/*/__init__.py ]; then
         log "⚠️ $name may be incomplete (missing __init__.py)"
     else
         log "✅ $name installed successfully"
@@ -135,6 +153,7 @@ main() {
     command -v pip >/dev/null 2>&1 || error_exit "Pip is not installed"
     command -v curl >/dev/null 2>&1 || error_exit "Curl is not installed"
     command -v unzip >/dev/null 2>&1 || error_exit "Unzip is not installed"
+    command -v tar >/dev/null 2>&1 || error_exit "Tar is not installed"
 
     # Configure Git to avoid prompts
     git config --global core.askpass true
@@ -190,7 +209,7 @@ main() {
     log "📂 Installed Extensions:"
     for dir in "$CUSTOM_NODES_DIR"/*; do
         if [ -d "$dir" ]; then
-            if [ -f "$dir/__init__.py" ]; then
+            if [ -f "$dir/__init__.py" ] || [ -f "$dir"/*/__init__.py ]; then
                 echo "  ✅ $(basename "$dir")"
             else
                 echo "  ⚠️ $(basename "$dir") (possibly incomplete)"
