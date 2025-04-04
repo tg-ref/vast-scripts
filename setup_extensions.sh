@@ -247,14 +247,18 @@ setup_basic_extensions() {
     # Create custom_nodes directory if it doesn't exist
     mkdir -p /workspace/ComfyUI/custom_nodes
     
-    # List of public extensions to install
+    # Multi-source extension definitions with fallbacks
+    # Format: extension_name|primary_url|fallback_url1|fallback_url2
     local extensions=(
-        "https://github.com/ltdrdata/ComfyUI-Manager.git"
+        "ComfyUI-Manager|https://github.com/ltdrdata/ComfyUI-Manager.git|https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/ltdrdata-ComfyUI-Manager.zip"
+        "ComfyUI-Impact-Pack|https://github.com/ltdrdata/ComfyUI-Impact-Pack.git|https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/ltdrdata-ComfyUI-Impact-Pack.zip"
+        "ComfyUI-Nodes-Base|https://github.com/Acly/comfyui-nodes-base.git|https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/Acly-comfyui-nodes-base.zip"
     )
     
-    # Clone each extension
-    for extension in "${extensions[@]}"; do
-        local extension_name=$(basename "$extension" .git)
+    # Install each extension with fallback mechanism
+    for extension_info in "${extensions[@]}"; do
+        # Parse the extension info
+        IFS='|' read -r extension_name primary_url fallback_url1 fallback_url2 <<< "$extension_info"
         local target_dir="/workspace/ComfyUI/custom_nodes/$extension_name"
         
         log "Installing extension: $extension_name" "INFO"
@@ -265,20 +269,93 @@ setup_basic_extensions() {
             continue
         fi
         
-        # Clone with multiple retry attempts
-        for _ in {1..3}; do
-            if git clone "$extension" "$target_dir"; then
-                break
+        # Try to install from primary URL (git)
+        log "Attempting to install from primary source..." "INFO"
+        if git clone "$primary_url" "$target_dir" 2>/dev/null; then
+            log "Successfully installed $extension_name from primary source" "INFO"
+        else
+            log "Primary source failed, trying fallback sources..." "WARN"
+            
+            # Create a temporary directory
+            local temp_dir=$(mktemp -d)
+            
+            # Try fallback URL 1 (zip file)
+            if [ -n "$fallback_url1" ]; then
+                log "Trying fallback source 1..." "INFO"
+                if wget -q "$fallback_url1" -O "$temp_dir/extension.zip"; then
+                    mkdir -p "$target_dir"
+                    unzip -q "$temp_dir/extension.zip" -d "$target_dir"
+                    log "Successfully installed $extension_name from fallback source 1" "INFO"
+                elif [ -n "$fallback_url2" ]; then
+                    # Try fallback URL 2 if available
+                    log "Fallback source 1 failed, trying fallback source 2..." "WARN"
+                    if wget -q "$fallback_url2" -O "$temp_dir/extension.zip"; then
+                        mkdir -p "$target_dir"
+                        unzip -q "$temp_dir/extension.zip" -d "$target_dir"
+                        log "Successfully installed $extension_name from fallback source 2" "INFO"
+                    else
+                        log "All installation methods failed for $extension_name" "ERROR"
+                    fi
+                else
+                    log "All installation methods failed for $extension_name" "ERROR"
+                fi
+            else
+                log "No fallback sources available for $extension_name" "ERROR"
             fi
-            log "Extension clone failed. Retrying..." "WARN"
-            sleep 5
-        done
+            
+            # Clean up temporary directory
+            rm -rf "$temp_dir"
+        fi
         
         # Install requirements if present
         if [ -f "$target_dir/requirements.txt" ]; then
             log "Installing requirements for $extension_name" "INFO"
             python3 -m pip install -r "$target_dir/requirements.txt" || log "Failed to install requirements for $extension_name" "WARN"
         fi
+    done
+    
+    # Additional: Install simple direct download extensions
+    log "Installing additional extensions via direct download..." "INFO"
+    
+    # Direct download extensions (no git required)
+    local direct_extensions=(
+        "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/WASasquatch-ComfyUI-WAN-Suite.zip|ComfyUI-WAN-Suite"
+        "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/cubiq-ComfyUI_IPAdapter_plus.zip|ComfyUI_IPAdapter_plus" 
+        "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/rgthree-comfyui-nodes-rgthree.zip|comfyui-nodes-rgthree"
+    )
+    
+    for direct_ext in "${direct_extensions[@]}"; do
+        IFS='|' read -r url ext_name <<< "$direct_ext"
+        local target_dir="/workspace/ComfyUI/custom_nodes/$ext_name"
+        
+        # Skip if already exists
+        if [ -d "$target_dir" ]; then
+            log "Extension $ext_name already exists, skipping." "INFO"
+            continue
+        fi
+        
+        log "Installing extension: $ext_name via direct download" "INFO"
+        
+        # Create a temporary directory
+        local temp_dir=$(mktemp -d)
+        
+        # Download and install
+        if wget -q "$url" -O "$temp_dir/extension.zip"; then
+            mkdir -p "$target_dir"
+            unzip -q "$temp_dir/extension.zip" -d "$target_dir"
+            log "Successfully installed $ext_name" "INFO"
+            
+            # Install requirements if present
+            if [ -f "$target_dir/requirements.txt" ]; then
+                log "Installing requirements for $ext_name" "INFO"
+                python3 -m pip install -r "$target_dir/requirements.txt" || log "Failed to install requirements for $ext_name" "WARN"
+            fi
+        else
+            log "Failed to download $ext_name" "ERROR"
+        fi
+        
+        # Clean up
+        rm -rf "$temp_dir"
     done
 }
 
