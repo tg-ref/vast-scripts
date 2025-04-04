@@ -1,17 +1,13 @@
 #!/bin/bash
-# 🕵️ Comprehensive Extension Download Diagnostics
+# 🕵️ ComfyUI Extension Download Diagnostics
 
 set -euo pipefail
 
-# Logging function
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-# Error logging function
-error_log() {
-    echo "[ERROR] $1" >&2
-}
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
 # Repositories to test
 REPOS=(
@@ -20,170 +16,147 @@ REPOS=(
     "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
 )
 
-# Comprehensive system and network diagnostics
-full_system_diagnostics() {
-    log "🖥️ Comprehensive System Diagnostics"
+# Network Diagnostics
+network_check() {
+    echo -e "${YELLOW}🌐 Network Diagnostics${NC}"
     
-    # Basic system information
-    log "Hostname: $(hostname)"
-    log "Current User: $(whoami)"
-    
-    # OS Information
-    if [ -f /etc/os-release ]; then
-        log "OS Details:"
-        cat /etc/os-release
-    else
-        log "Unable to retrieve OS information"
-    fi
-    
-    # Network interfaces
-    log "Network Interfaces:"
+    # Detailed network checks
+    echo "Network Interfaces:"
     ip addr || ifconfig
     
-    # DNS Configuration
-    log "DNS Configuration:"
+    echo "Routing Table:"
+    ip route || route -n
+    
+    echo "DNS Configuration:"
     cat /etc/resolv.conf
     
-    # Detailed network diagnostics
-    log "Network Routing:"
-    ip route || route -n
+    # Check basic connectivity
+    echo "Testing internet connectivity..."
+    if ! timeout 10 ping -c 4 8.8.8.8 > /dev/null 2>&1; then
+        echo -e "${RED}❌ No internet connectivity${NC}"
+        return 1
+    fi
+    
+    # Check GitHub connectivity
+    echo "Testing GitHub connectivity..."
+    if ! timeout 10 ping -c 4 github.com > /dev/null 2>&1; then
+        echo -e "${RED}❌ Cannot reach GitHub${NC}"
+        return 1
+    fi
+    
+    echo -e "${GREEN}✅ Network connectivity appears normal${NC}"
+    return 0
 }
 
-# Advanced network connectivity check
-advanced_network_check() {
-    log "🌐 Advanced Network Diagnostics"
+# SSL/TLS Diagnostics
+ssl_check() {
+    echo -e "${YELLOW}🔒 SSL/TLS Diagnostics${NC}"
     
-    # Check various network-related utilities
-    log "Checking network utilities..."
+    # Detailed SSL check
+    echo "SSL/TLS Certificate Details:"
+    echo | openssl s_client -connect github.com:443 2>/dev/null | openssl x509 -noout -dates
     
-    # List of utilities to check
-    local utilities=("ping" "curl" "wget" "netstat" "ss" "ip" "traceroute")
+    # Check SSL connectivity
+    if ! timeout 10 openssl s_client -connect github.com:443 -brief > /dev/null 2>&1; then
+        echo -e "${RED}❌ SSL connection to GitHub failed${NC}"
+        return 1
+    fi
     
-    for util in "${utilities[@]}"; do
-        if command -v "$util" >/dev/null 2>&1; then
-            log "✅ $util is installed"
-        else
-            log "❌ $util is not installed"
-        fi
-    done
-    
-    # Extensive connectivity tests
-    log "Testing connectivity to critical services..."
-    
-    local test_hosts=(
-        "8.8.8.8"       # Google DNS
-        "1.1.1.1"       # Cloudflare DNS
-        "github.com"
-        "raw.githubusercontent.com"
-    )
-    
-    for host in "${test_hosts[@]}"; do
-        log "Testing connectivity to $host:"
-        if ping -c 4 "$host" >/dev/null 2>&1; then
-            log "✅ Successfully pinged $host"
-        else
-            error_log "❌ Failed to ping $host"
-        fi
-    done
+    echo -e "${GREEN}✅ SSL connectivity appears normal${NC}"
+    return 0
 }
 
-# Enhanced download diagnostics
-advanced_download_diagnostics() {
-    log "📦 Advanced Download Diagnostics"
+# Enhanced Download Diagnostics
+download_diagnostics() {
+    echo -e "${YELLOW}📦 Download Diagnostics${NC}"
     
-    # Temporary directory for downloads
-    local temp_dir="/tmp/extension_downloads"
-    mkdir -p "$temp_dir"
+    mkdir -p /tmp/download_diagnostics
     
     for repo in "${REPOS[@]}"; do
-        local repo_name=$(basename "$repo" .git)
-        log "Testing Repository: $repo_name"
+        repo_name=$(basename "$repo" .git)
+        echo -e "\n${YELLOW}Testing Repository: $repo${NC}"
         
         # Generate download URLs
-        local download_urls=(
+        DOWNLOAD_URLS=(
             "https://github.com/$(echo "$repo" | cut -d'/' -f4-5 | sed 's/\.git$//')/archive/refs/heads/main.zip"
             "https://codeload.github.com/$(echo "$repo" | cut -d'/' -f4-5 | sed 's/\.git$//')/zip/refs/heads/main"
+            "https://github.com/$(echo "$repo" | cut -d'/' -f4-5 | sed 's/\.git$//')/zipball/main"
         )
         
-        for url in "${download_urls[@]}"; do
-            log "Attempting to download from: $url"
+        for url in "${DOWNLOAD_URLS[@]}"; do
+            echo "Testing download URL: $url"
             
-            # Detailed curl command with extensive logging
-            local output_file="$temp_dir/${repo_name}-download.zip"
-            local curl_log="$temp_dir/${repo_name}-curl.log"
+            output_file="/tmp/download_diagnostics/${repo_name}-test.zip"
+            log_file="/tmp/download_diagnostics/${repo_name}-curl.log"
             
-            log "Saving download to: $output_file"
-            log "Curl log will be saved to: $curl_log"
-            
-            if ! curl -v -L -f \
-                -o "$output_file" \
+            # Enhanced curl with timeout and detailed logging
+            echo -e "${YELLOW}Attempting download with enhanced curl:${NC}"
+            if timeout 60 curl -v -L -f \
+                --max-time 30 \
                 --retry 3 \
                 --retry-delay 5 \
-                --max-time 60 \
-                --trace-ascii "$curl_log" \
+                -o "$output_file" \
+                --trace-ascii "$log_file" \
                 "$url" 2>&1; then
                 
-                error_log "Download failed for $url"
-                error_log "Curl log contents:"
-                cat "$curl_log"
-                continue
-            fi
-            
-            # Check downloaded file
-            if [ ! -f "$output_file" ]; then
-                error_log "No file was downloaded"
-                continue
-            fi
-            
-            local file_size=$(stat -c%s "$output_file")
-            local file_type=$(file -b "$output_file")
-            
-            log "Download successful:"
-            log "File size: $file_size bytes"
-            log "File type: $file_type"
-            
-            # Attempt to unzip
-            if unzip -t "$output_file" >/dev/null 2>&1; then
-                log "✅ ZIP file appears valid and extractable"
+                # Check downloaded file
+                if [ -f "$output_file" ]; then
+                    file_size=$(stat -c%s "$output_file")
+                    file_type=$(file -b "$output_file")
+                    
+                    echo -e "Download file size: ${GREEN}$file_size bytes${NC}"
+                    echo -e "File type: ${GREEN}$file_type${NC}"
+                    
+                    # Try extraction
+                    if unzip -t "$output_file" > /dev/null 2>&1; then
+                        echo -e "${GREEN}✅ ZIP file appears valid and extractable${NC}"
+                    else
+                        echo -e "${RED}❌ ZIP file appears invalid or corrupt${NC}"
+                        echo "Curl log contents:"
+                        cat "$log_file"
+                    fi
+                else
+                    echo -e "${RED}❌ No file was downloaded${NC}"
+                fi
             else
-                error_log "❌ ZIP file appears invalid or corrupt"
+                curl_exit_code=$?
+                echo -e "${RED}❌ Download failed with exit code $curl_exit_code${NC}"
+                echo "Curl log contents:"
+                cat "$log_file"
             fi
         done
     done
 }
 
-# Git clone diagnostics
+# Git Clone Diagnostics
 git_clone_diagnostics() {
-    log "🔧 Git Clone Diagnostics"
+    echo -e "${YELLOW}🔧 Git Clone Diagnostics${NC}"
     
-    # Temporary directory for clones
-    local temp_dir="/tmp/extension_clones"
-    mkdir -p "$temp_dir"
+    mkdir -p /tmp/clone_diagnostics
     
     for repo in "${REPOS[@]}"; do
-        local repo_name=$(basename "$repo" .git)
-        log "Testing Repository: $repo_name"
+        repo_name=$(basename "$repo" .git)
+        echo -e "\n${YELLOW}Testing Repository: $repo${NC}"
         
-        # Clone strategies
-        local clone_strategies=(
-            "git clone --depth 1 $repo $temp_dir/${repo_name}-clone"
-            "GIT_TERMINAL_PROMPT=0 git clone --depth 1 $repo $temp_dir/${repo_name}-clone"
+        # Try various clone strategies
+        clone_strategies=(
+            "git clone --depth 1 $repo /tmp/clone_diagnostics/${repo_name}-clone"
+            "GIT_TERMINAL_PROMPT=0 git clone --depth 1 $repo /tmp/clone_diagnostics/${repo_name}-clone"
+            "git clone $repo /tmp/clone_diagnostics/${repo_name}-clone"
         )
         
         for strategy in "${clone_strategies[@]}"; do
-            log "Attempting clone strategy: $strategy"
+            log_file="/tmp/clone_diagnostics/${repo_name}-clone.log"
             
-            # Redirect output to log file
-            local clone_log="$temp_dir/${repo_name}-clone.log"
+            echo "Trying clone strategy: $strategy"
             
-            if $strategy > "$clone_log" 2>&1; then
-                log "✅ Clone successful with strategy: $strategy"
-                log "Clone log:"
-                cat "$clone_log"
+            if $strategy > "$log_file" 2>&1; then
+                echo -e "${GREEN}✅ Clone successful with strategy: $strategy${NC}"
+                break
             else
-                error_log "❌ Clone failed with strategy: $strategy"
-                error_log "Clone log contents:"
-                cat "$clone_log"
+                echo -e "${RED}❌ Clone failed with strategy: $strategy${NC}"
+                echo "Clone log contents:"
+                cat "$log_file"
             fi
         done
     done
@@ -191,24 +164,25 @@ git_clone_diagnostics() {
 
 # Main diagnostic function
 main_diagnostics() {
-    log "🚀 Comprehensive Extension Download Diagnostics"
+    echo -e "${YELLOW}🚀 ComfyUI Extension Download Diagnostics${NC}"
     
     # Run diagnostics
-    full_system_diagnostics
-    advanced_network_check
-    advanced_download_diagnostics
+    network_check
+    ssl_check
+    
+    echo -e "\n${YELLOW}Attempting Download Methods:${NC}"
+    download_diagnostics
+    
+    echo -e "\n${YELLOW}Attempting Git Clone Methods:${NC}"
     git_clone_diagnostics
 }
 
-# Cleanup function
+# Clean up function
 cleanup() {
-    log "🧹 Cleaning up temporary files"
-    rm -rf /tmp/extension_downloads
-    rm -rf /tmp/extension_clones
+    rm -rf /tmp/download_diagnostics
+    rm -rf /tmp/clone_diagnostics
 }
 
-# Trap cleanup on exit
+# Run diagnostics
 trap cleanup EXIT
-
-# Run main diagnostics
 main_diagnostics
