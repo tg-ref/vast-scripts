@@ -1,14 +1,13 @@
 #!/bin/bash
-# ComfyUI Extensions Setup for Vast.ai - No GitHub Authentication Required
+# ComfyUI Extensions Installation Script with verified direct download links
 # https://github.com/DnsSrinath/vast-scripts
 
 # Logging function
 log() {
-    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo "[${timestamp}] $1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting ComfyUI Extensions Setup (No GitHub Auth)"
+log "Starting ComfyUI extensions installation..."
 
 # Verify ComfyUI is installed
 if [ ! -d "/workspace/ComfyUI" ]; then
@@ -20,22 +19,10 @@ fi
 mkdir -p /workspace/ComfyUI/custom_nodes
 cd /workspace/ComfyUI/custom_nodes
 
-# Check for CUDA/GPU support
-if command -v nvidia-smi &> /dev/null; then
-    log "NVIDIA GPU detected. Installing GPU-optimized extensions."
-else
-    log "WARNING: No NVIDIA GPU detected. Some extensions may not work properly."
-fi
-
-# Install common dependencies first
-log "Installing essential dependencies..."
-python3 -m pip install --upgrade pip
-python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors || log "WARNING: Some core dependencies failed to install"
-
-# Function to download and install an extension from direct download URL
-install_from_direct_url() {
-    local url="$1"
-    local name="$2"
+# Function to download and install extension
+install_extension() {
+    local name="$1"
+    local zip_url="$2"
     local target_dir="/workspace/ComfyUI/custom_nodes/$name"
     
     if [ -d "$target_dir" ]; then
@@ -43,111 +30,76 @@ install_from_direct_url() {
         return 0
     fi
     
-    log "Installing $name via direct download..."
+    log "Installing $name..."
+    wget -O extension.zip "$zip_url"
     
-    # Create temp directory
-    local temp_dir=$(mktemp -d)
-    
-    if curl -L "$url" -o "$temp_dir/extension.zip"; then
+    if [ -f "extension.zip" ]; then
         mkdir -p "$target_dir"
-        unzip -q "$temp_dir/extension.zip" -d "$temp_dir/extracted"
+        mkdir -p temp_extract
+        unzip -q extension.zip -d temp_extract
         
-        # Find the actual directory inside the zip (usually has -main or -master suffix)
-        local extracted_dir=$(find "$temp_dir/extracted" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-        
-        if [ -n "$extracted_dir" ]; then
-            # Move contents to target directory
-            mv "$extracted_dir"/* "$target_dir"/
-            log "Successfully installed $name"
-            
-            # Install requirements if present
-            if [ -f "$target_dir/requirements.txt" ]; then
-                log "Installing requirements for $name"
-                cd "$target_dir"
-                python3 -m pip install -r requirements.txt || log "WARNING: Some requirements for $name failed to install"
-                cd ..
-            fi
-            
-            # Clean up
-            rm -rf "$temp_dir"
-            return 0
+        # Find the correct directory and move its contents
+        if [ -d "temp_extract/$name-main" ]; then
+            mv "temp_extract/$name-main"/* "$target_dir"/
+        elif [ -d "temp_extract/$name-master" ]; then
+            mv "temp_extract/$name-master"/* "$target_dir"/
         else
-            log "ERROR: Could not find extracted directory for $name"
-            rm -rf "$temp_dir"
-            return 1
+            # Try to find any directory and move its contents
+            first_dir=$(find temp_extract -maxdepth 1 -type d | sort | head -n 2 | tail -n 1)
+            if [ -n "$first_dir" ]; then
+                mv "$first_dir"/* "$target_dir"/
+            else
+                # If all else fails, move everything
+                mv temp_extract/* "$target_dir"/
+            fi
         fi
+        
+        # Clean up
+        rm -rf temp_extract extension.zip
+        
+        # Install requirements
+        if [ -f "$target_dir/requirements.txt" ]; then
+            log "Installing requirements for $name..."
+            cd "$target_dir"
+            python3 -m pip install -r requirements.txt || log "WARNING: Some requirements for $name failed to install"
+            cd /workspace/ComfyUI/custom_nodes
+        fi
+        
+        log "$name installed successfully."
+        return 0
     else
-        log "ERROR: Failed to download $name"
-        rm -rf "$temp_dir"
+        log "Failed to download $name."
         return 1
     fi
 }
 
-# Direct download links from Hugging Face and other sources that don't require authentication
-log "Installing extensions from direct download sources..."
+# Install core extensions
+log "Installing core extensions..."
 
-# ComfyUI Manager
-log "Installing ComfyUI-Manager..."
-if [ ! -d "ComfyUI-Manager" ]; then
-    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/ltdrdata-ComfyUI-Manager.zip" "ComfyUI-Manager" || \
-    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/ltdrdata-ComfyUI-Manager.zip" "ComfyUI-Manager" || \
-    log "WARNING: Failed to install ComfyUI-Manager"
-else
-    log "ComfyUI-Manager already exists, skipping."
-fi
+# ComfyUI-Manager
+install_extension "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager/archive/refs/heads/main.zip"
 
-# ComfyUI Impact Pack
-log "Installing ComfyUI-Impact-Pack..."
-if [ ! -d "ComfyUI-Impact-Pack" ]; then
-    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/ltdrdata-ComfyUI-Impact-Pack.zip" "ComfyUI-Impact-Pack" || \
-    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/ltdrdata-ComfyUI-Impact-Pack.zip" "ComfyUI-Impact-Pack" || \
-    log "WARNING: Failed to install ComfyUI-Impact-Pack"
-else
-    log "ComfyUI-Impact-Pack already exists, skipping."
-fi
+# ComfyUI-Impact-Pack
+install_extension "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack/archive/refs/tags/v2.5.6.zip"
 
-# WAN Suite
-log "Installing ComfyUI-WAN-Suite..."
-if [ ! -d "ComfyUI-WAN-Suite" ]; then
-    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/WASasquatch-ComfyUI-WAN-Suite.zip" "ComfyUI-WAN-Suite" || \
-    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/WASasquatch-ComfyUI-WAN-Suite.zip" "ComfyUI-WAN-Suite" || \
-    log "WARNING: Failed to install ComfyUI-WAN-Suite"
-else
-    log "ComfyUI-WAN-Suite already exists, skipping."
-fi
+# ComfyUI-WAN-Suite
+install_extension "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite/archive/refs/heads/main.zip"
 
-# IPAdapter Plus
-log "Installing ComfyUI_IPAdapter_plus..."
-if [ ! -d "ComfyUI_IPAdapter_plus" ]; then
-    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/cubiq-ComfyUI_IPAdapter_plus.zip" "ComfyUI_IPAdapter_plus" || \
-    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/cubiq-ComfyUI_IPAdapter_plus.zip" "ComfyUI_IPAdapter_plus" || \
-    log "WARNING: Failed to install ComfyUI_IPAdapter_plus"
-else
-    log "ComfyUI_IPAdapter_plus already exists, skipping."
-fi
+# Install additional extensions
+log "Installing additional extensions..."
 
-# ComfyUI Nodes Base
-log "Installing comfyui-nodes-base..."
-if [ ! -d "comfyui-nodes-base" ]; then
-    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/Acly-comfyui-nodes-base.zip" "comfyui-nodes-base" || \
-    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/Acly-comfyui-nodes-base.zip" "comfyui-nodes-base" || \
-    log "WARNING: Failed to install comfyui-nodes-base"
-else
-    log "comfyui-nodes-base already exists, skipping."
-fi
+# ComfyUI-nodes-base
+install_extension "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base/archive/refs/heads/main.zip"
 
-# rgthree nodes
-log "Installing comfyui-nodes-rgthree..."
-if [ ! -d "comfyui-nodes-rgthree" ]; then
-    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/rgthree-comfyui-nodes-rgthree.zip" "comfyui-nodes-rgthree" || \
-    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/rgthree-comfyui-nodes-rgthree.zip" "comfyui-nodes-rgthree" || \
-    log "WARNING: Failed to install comfyui-nodes-rgthree"
-else
-    log "comfyui-nodes-rgthree already exists, skipping."
-fi
+# ComfyUI_IPAdapter_plus
+install_extension "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus/archive/refs/heads/main.zip"
 
-# Install additional dependencies that might be needed by the extensions
-log "Installing additional dependencies..."
+# comfyui-nodes-rgthree
+install_extension "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree/archive/refs/heads/main.zip"
+
+# Install common dependencies
+log "Installing common Python dependencies for extensions..."
+python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors || log "WARNING: Some core dependencies failed to install"
 python3 -m pip install insightface timm fairscale prettytable || log "WARNING: Some additional dependencies failed to install"
 python3 -m pip install ultralytics || log "WARNING: Failed to install ultralytics"
 
