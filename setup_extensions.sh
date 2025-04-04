@@ -1,114 +1,91 @@
 #!/bin/bash
-# Extensions and tools setup for ComfyUI on Vast.ai with debugging
+# ComfyUI Extensions Setup Script for Vast.ai
 
-# Log function with timestamps
+# Log function
 log() {
-  echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
 }
 
-DEBUG_LOG="/workspace/wan_debug.log"
-echo "" > $DEBUG_LOG  # Clear debug log
+# Error handling function
+error_exit() {
+    log "ERROR: $1"
+    exit 1
+}
 
-log "Starting ComfyUI extensions setup (DEBUG MODE)..."
-log "This script will install WAN 2.1 and other extensions"
+# Ensure we're in the right directory
+cd /workspace/ComfyUI || error_exit "ComfyUI directory not found"
 
-# Print system info
-log "System information:" | tee -a $DEBUG_LOG
-uname -a >> $DEBUG_LOG
-df -h >> $DEBUG_LOG
-echo "Python version:" >> $DEBUG_LOG
-python --version >> $DEBUG_LOG
-echo "Pip version:" >> $DEBUG_LOG
-pip --version >> $DEBUG_LOG
-echo "Git version:" >> $DEBUG_LOG
-git --version >> $DEBUG_LOG
+# Create custom nodes directory if it doesn't exist
+mkdir -p custom_nodes
 
-# Configure git with debugging
-log "Configuring git..." | tee -a $DEBUG_LOG
-git config --global url."https://".insteadOf git://
-git config --global --list >> $DEBUG_LOG
-# Prevent git from asking for credentials
-export GIT_TERMINAL_PROMPT=0
-export GIT_SSL_NO_VERIFY=1
+# List of extensions to install
+EXTENSIONS=(
+    "https://github.com/MoonRide303/ComfyUI-WAN-Suite.git"
+    # Add more extension repositories here
+)
 
-# Check if ComfyUI is installed
-if [ ! -d "/workspace/ComfyUI" ]; then
-  log "ERROR: ComfyUI directory not found. Please run setup_comfyui.sh first." | tee -a $DEBUG_LOG
-  exit 1
-fi
+# Install each extension
+for ext_url in "${EXTENSIONS[@]}"; do
+    # Extract repository name
+    repo_name=$(basename "$ext_url" .git)
+    
+    log "Processing extension: $repo_name"
+    
+    # Remove existing extension if it exists
+    if [ -d "custom_nodes/$repo_name" ]; then
+        log "Removing existing $repo_name"
+        rm -rf "custom_nodes/$repo_name"
+    fi
+    
+    # Clone the extension
+    log "Cloning $ext_url"
+    git clone "$ext_url" "custom_nodes/$repo_name" || {
+        log "Failed to clone $ext_url. Trying alternative download method..."
+        
+        # Alternative download method using curl
+        repo_owner=$(echo "$ext_url" | cut -d'/' -f4)
+        repo=$(echo "$ext_url" | cut -d'/' -f5 | cut -d'.' -f1)
+        zip_url="https://github.com/$repo_owner/$repo/archive/refs/heads/main.zip"
+        
+        curl -L "$zip_url" -o "$repo_name.zip"
+        unzip -q "$repo_name.zip" -d "custom_nodes"
+        mv "custom_nodes/$repo_name-main" "custom_nodes/$repo_name"
+        rm "$repo_name.zip"
+    }
+    
+    # Check for requirements file and install if exists
+    if [ -f "custom_nodes/$repo_name/requirements.txt" ]; then
+        log "Installing requirements for $repo_name"
+        pip install -r "custom_nodes/$repo_name/requirements.txt"
+    fi
+done
 
-log "Installing WAN 2.1 Suite (with debugging)..." | tee -a $DEBUG_LOG
-mkdir -p /workspace/ComfyUI/custom_nodes
-cd /workspace/ComfyUI/custom_nodes
-log "Current directory: $(pwd)" | tee -a $DEBUG_LOG
-log "Cloning WAN 2.1 repository..." | tee -a $DEBUG_LOG
-
-# Clone with full debug output
-git clone https://github.com/MoonRide303/ComfyUI-WAN-Suite.git 2>&1 | tee -a $DEBUG_LOG
-
-if [ ! -d "ComfyUI-WAN-Suite" ]; then
-  log "ERROR: Git clone failed! Trying alternative approach..." | tee -a $DEBUG_LOG
-  # Try curl as alternative
-  log "Downloading ZIP file instead..." | tee -a $DEBUG_LOG
-  curl -L https://github.com/MoonRide303/ComfyUI-WAN-Suite/archive/refs/heads/main.zip -o wan-suite.zip 2>&1 | tee -a $DEBUG_LOG
-  unzip -q wan-suite.zip 2>&1 | tee -a $DEBUG_LOG
-  rm wan-suite.zip
-  mv ComfyUI-WAN-Suite-main ComfyUI-WAN-Suite
-fi
-
-if [ -d "ComfyUI-WAN-Suite" ]; then
-  log "WAN 2.1 directory created successfully" | tee -a $DEBUG_LOG
-  cd ComfyUI-WAN-Suite
-  log "Installing WAN 2.1 requirements..." | tee -a $DEBUG_LOG
-  pip install -r requirements.txt 2>&1 | tee -a $DEBUG_LOG
-else
-  log "ERROR: Failed to create WAN 2.1 directory!" | tee -a $DEBUG_LOG
-fi
-
-# Download WAN 2.1 model with debugging
-log "Setting up WAN 2.1 model..." | tee -a $DEBUG_LOG
+# Special handling for WAN Suite model
+log "Setting up WAN 2.1 model..."
 mkdir -p /workspace/ComfyUI/models/wan_models
 cd /workspace/ComfyUI/models/wan_models
-log "Current directory: $(pwd)" | tee -a $DEBUG_LOG
 
-log "Downloading WAN 2.1 model (with debugging)..." | tee -a $DEBUG_LOG
-TEMP_MODEL_FILE="wan_v2_1.pth.tmp"
+# Download WAN 2.1 model
+MODEL_URL="https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth"
 MODEL_FILE="wan_v2_1.pth"
 
-# Remove any existing empty file
-if [ -f "$MODEL_FILE" ] && [ ! -s "$MODEL_FILE" ]; then
-  log "Removing existing empty model file" | tee -a $DEBUG_LOG
-  rm "$MODEL_FILE"
-fi
-
-log "Trying wget download..." | tee -a $DEBUG_LOG
-wget -v https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth -O $TEMP_MODEL_FILE 2>&1 | tee -a $DEBUG_LOG
-
-if [ ! -s "$TEMP_MODEL_FILE" ]; then
-  log "wget failed, trying curl..." | tee -a $DEBUG_LOG
-  curl -L https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth -o $TEMP_MODEL_FILE 2>&1 | tee -a $DEBUG_LOG
-fi
-
-if [ -s "$TEMP_MODEL_FILE" ]; then
-  log "Model download successful, renaming to final filename" | tee -a $DEBUG_LOG
-  mv $TEMP_MODEL_FILE $MODEL_FILE
-  log "Model file size: $(du -h $MODEL_FILE | cut -f1)" | tee -a $DEBUG_LOG
+log "Downloading WAN 2.1 model..."
+if wget -O "$MODEL_FILE" "$MODEL_URL"; then
+    log "WAN 2.1 model downloaded successfully"
 else
-  log "ERROR: Failed to download model!" | tee -a $DEBUG_LOG
+    log "Wget failed, trying curl..."
+    curl -L "$MODEL_URL" -o "$MODEL_FILE"
 fi
 
-# Create symlinks for model discovery
-log "Setting up model symlinks..." | tee -a $DEBUG_LOG
-mkdir -p /workspace/ComfyUI/models/checkpoints
-ln -sf /workspace/ComfyUI/models/wan_models /workspace/ComfyUI/models/checkpoints/wan_models
+# Verify model download
+if [ -s "$MODEL_FILE" ]; then
+    log "Model file size: $(du -h "$MODEL_FILE" | cut -f1)"
+    
+    # Create symlinks for model discovery
+    mkdir -p /workspace/ComfyUI/models/checkpoints
+    ln -sf /workspace/ComfyUI/models/wan_models /workspace/ComfyUI/models/checkpoints/wan_models
+else
+    log "ERROR: Failed to download WAN 2.1 model"
+fi
 
-# Check if things are installed
-log "Verifying installation..." | tee -a $DEBUG_LOG
-echo "WAN 2.1 Suite extension exists: $(test -d /workspace/ComfyUI/custom_nodes/ComfyUI-WAN-Suite && echo 'YES' || echo 'NO')" | tee -a $DEBUG_LOG
-echo "WAN 2.1 model exists: $(test -f /workspace/ComfyUI/models/wan_models/wan_v2_1.pth && echo 'YES' || echo 'NO')" | tee -a $DEBUG_LOG
-echo "WAN 2.1 model size: $(du -h /workspace/ComfyUI/models/wan_models/wan_v2_1.pth 2>/dev/null | cut -f1 || echo 'ERROR')" | tee -a $DEBUG_LOG
-echo "Symlink exists: $(test -L /workspace/ComfyUI/models/checkpoints/wan_models && echo 'YES' || echo 'NO')" | tee -a $DEBUG_LOG
-
-log "WAN 2.1 installation complete. Check $DEBUG_LOG for detailed logs."
-log "You need to restart ComfyUI to see WAN 2.1 nodes:"
-log "pkill -f \"python main.py\" && cd /workspace/ComfyUI && python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header"
+log "ComfyUI extensions setup complete!"
