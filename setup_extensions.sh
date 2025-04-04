@@ -1,10 +1,6 @@
 #!/bin/bash
-# Robust ComfyUI Extensions Setup for Vast.ai
-# Designed for reliable deployment across multiple instances
+# ComfyUI Extensions Setup for Vast.ai - No GitHub Authentication Required
 # https://github.com/DnsSrinath/vast-scripts
-
-# Error handling
-set -e
 
 # Logging function
 log() {
@@ -12,11 +8,11 @@ log() {
     echo "[${timestamp}] $1"
 }
 
-log "Starting ComfyUI Extensions Setup"
+log "Starting ComfyUI Extensions Setup (No GitHub Auth)"
 
 # Verify ComfyUI is installed
 if [ ! -d "/workspace/ComfyUI" ]; then
-    log "ERROR: ComfyUI not found at /workspace/ComfyUI. Please install it first."
+    log "ERROR: ComfyUI not found. Please install it first."
     exit 1
 fi
 
@@ -31,103 +27,128 @@ else
     log "WARNING: No NVIDIA GPU detected. Some extensions may not work properly."
 fi
 
-# Function to install an extension via git
-install_extension() {
-    local repo_url="$1"
-    local dir_name="$2"
-    local branch="${3:-main}"
+# Install common dependencies first
+log "Installing essential dependencies..."
+python3 -m pip install --upgrade pip
+python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors || log "WARNING: Some core dependencies failed to install"
+
+# Function to download and install an extension from direct download URL
+install_from_direct_url() {
+    local url="$1"
+    local name="$2"
+    local target_dir="/workspace/ComfyUI/custom_nodes/$name"
     
-    if [ -d "$dir_name" ]; then
-        log "$dir_name already exists, skipping installation."
+    if [ -d "$target_dir" ]; then
+        log "$name already exists, skipping."
         return 0
     fi
     
-    log "Installing $dir_name..."
+    log "Installing $name via direct download..."
     
-    # Clone with depth=1 for faster downloads
-    if git clone --depth=1 --branch "$branch" "$repo_url" "$dir_name"; then
-        log "Successfully cloned $dir_name"
+    # Create temp directory
+    local temp_dir=$(mktemp -d)
+    
+    if curl -L "$url" -o "$temp_dir/extension.zip"; then
+        mkdir -p "$target_dir"
+        unzip -q "$temp_dir/extension.zip" -d "$temp_dir/extracted"
         
-        # Install requirements if present
-        if [ -f "$dir_name/requirements.txt" ]; then
-            log "Installing requirements for $dir_name"
-            cd "$dir_name"
-            python3 -m pip install -r requirements.txt || log "WARNING: Some requirements for $dir_name failed to install"
-            cd ..
+        # Find the actual directory inside the zip (usually has -main or -master suffix)
+        local extracted_dir=$(find "$temp_dir/extracted" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+        
+        if [ -n "$extracted_dir" ]; then
+            # Move contents to target directory
+            mv "$extracted_dir"/* "$target_dir"/
+            log "Successfully installed $name"
+            
+            # Install requirements if present
+            if [ -f "$target_dir/requirements.txt" ]; then
+                log "Installing requirements for $name"
+                cd "$target_dir"
+                python3 -m pip install -r requirements.txt || log "WARNING: Some requirements for $name failed to install"
+                cd ..
+            fi
+            
+            # Clean up
+            rm -rf "$temp_dir"
+            return 0
+        else
+            log "ERROR: Could not find extracted directory for $name"
+            rm -rf "$temp_dir"
+            return 1
         fi
-        return 0
     else
-        log "ERROR: Failed to clone $dir_name"
+        log "ERROR: Failed to download $name"
+        rm -rf "$temp_dir"
         return 1
     fi
 }
 
-# Install core extensions - retry mechanism built in
-install_with_retry() {
-    local repo_url="$1"
-    local dir_name="$2"
-    local branch="${3:-main}"
-    local max_retries=3
-    local retry_count=0
-    
-    while [ $retry_count -lt $max_retries ]; do
-        if install_extension "$repo_url" "$dir_name" "$branch"; then
-            return 0
-        else
-            retry_count=$((retry_count + 1))
-            log "Retry $retry_count/$max_retries for $dir_name"
-            sleep 2
-        fi
-    done
-    
-    log "ERROR: Failed to install $dir_name after $max_retries attempts"
-    return 1
-}
+# Direct download links from Hugging Face and other sources that don't require authentication
+log "Installing extensions from direct download sources..."
 
-# Install essential dependencies first
-log "Installing essential dependencies..."
-python3 -m pip install --upgrade pip
-
-# Core Extensions - Each with retry mechanism
-log "Installing core extensions..."
-
-# Install ComfyUI Manager
-install_with_retry "https://github.com/ltdrdata/ComfyUI-Manager.git" "ComfyUI-Manager" || 
+# ComfyUI Manager
+log "Installing ComfyUI-Manager..."
+if [ ! -d "ComfyUI-Manager" ]; then
+    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/ltdrdata-ComfyUI-Manager.zip" "ComfyUI-Manager" || \
+    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/ltdrdata-ComfyUI-Manager.zip" "ComfyUI-Manager" || \
     log "WARNING: Failed to install ComfyUI-Manager"
+else
+    log "ComfyUI-Manager already exists, skipping."
+fi
 
-# Install ComfyUI Impact Pack
-install_with_retry "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git" "ComfyUI-Impact-Pack" || 
+# ComfyUI Impact Pack
+log "Installing ComfyUI-Impact-Pack..."
+if [ ! -d "ComfyUI-Impact-Pack" ]; then
+    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/ltdrdata-ComfyUI-Impact-Pack.zip" "ComfyUI-Impact-Pack" || \
+    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/ltdrdata-ComfyUI-Impact-Pack.zip" "ComfyUI-Impact-Pack" || \
     log "WARNING: Failed to install ComfyUI-Impact-Pack"
+else
+    log "ComfyUI-Impact-Pack already exists, skipping."
+fi
 
-# Install WAN Suite
-install_with_retry "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git" "ComfyUI-WAN-Suite" || 
+# WAN Suite
+log "Installing ComfyUI-WAN-Suite..."
+if [ ! -d "ComfyUI-WAN-Suite" ]; then
+    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/WASasquatch-ComfyUI-WAN-Suite.zip" "ComfyUI-WAN-Suite" || \
+    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/WASasquatch-ComfyUI-WAN-Suite.zip" "ComfyUI-WAN-Suite" || \
     log "WARNING: Failed to install ComfyUI-WAN-Suite"
+else
+    log "ComfyUI-WAN-Suite already exists, skipping."
+fi
 
-# Install additional useful extensions
-log "Installing additional extensions..."
-
-# Install node-base
-install_with_retry "https://github.com/Acly/comfyui-nodes-base.git" "comfyui-nodes-base" || 
-    log "WARNING: Failed to install comfyui-nodes-base"
-
-# Install IPAdapter Plus
-install_with_retry "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git" "ComfyUI_IPAdapter_plus" || 
+# IPAdapter Plus
+log "Installing ComfyUI_IPAdapter_plus..."
+if [ ! -d "ComfyUI_IPAdapter_plus" ]; then
+    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/cubiq-ComfyUI_IPAdapter_plus.zip" "ComfyUI_IPAdapter_plus" || \
+    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/cubiq-ComfyUI_IPAdapter_plus.zip" "ComfyUI_IPAdapter_plus" || \
     log "WARNING: Failed to install ComfyUI_IPAdapter_plus"
+else
+    log "ComfyUI_IPAdapter_plus already exists, skipping."
+fi
 
-# Install rgthree nodes
-install_with_retry "https://github.com/rgthree/comfyui-nodes-rgthree.git" "comfyui-nodes-rgthree" || 
+# ComfyUI Nodes Base
+log "Installing comfyui-nodes-base..."
+if [ ! -d "comfyui-nodes-base" ]; then
+    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/Acly-comfyui-nodes-base.zip" "comfyui-nodes-base" || \
+    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/Acly-comfyui-nodes-base.zip" "comfyui-nodes-base" || \
+    log "WARNING: Failed to install comfyui-nodes-base"
+else
+    log "comfyui-nodes-base already exists, skipping."
+fi
+
+# rgthree nodes
+log "Installing comfyui-nodes-rgthree..."
+if [ ! -d "comfyui-nodes-rgthree" ]; then
+    install_from_direct_url "https://huggingface.co/datasets/comfyanonymous/ComfyUI_extensions/resolve/main/rgthree-comfyui-nodes-rgthree.zip" "comfyui-nodes-rgthree" || \
+    install_from_direct_url "https://codeberg.org/comfyanonymous/ComfyUI_extensions/raw/branch/main/rgthree-comfyui-nodes-rgthree.zip" "comfyui-nodes-rgthree" || \
     log "WARNING: Failed to install comfyui-nodes-rgthree"
+else
+    log "comfyui-nodes-rgthree already exists, skipping."
+fi
 
-# Install ControlNet Aux
-install_with_retry "https://github.com/Fannovel16/comfyui_controlnet_aux.git" "comfyui_controlnet_aux" || 
-    log "WARNING: Failed to install comfyui_controlnet_aux"
-
-# Install dependencies in batches with error handling
-log "Installing common Python dependencies for extensions..."
-python3 -m pip install opencv-python || log "WARNING: Failed to install opencv-python"
-python3 -m pip install onnxruntime onnx || log "WARNING: Failed to install onnx packages"
-python3 -m pip install transformers accelerate safetensors || log "WARNING: Failed to install transformer packages"
-python3 -m pip install insightface timm fairscale prettytable || log "WARNING: Failed to install additional packages"
+# Install additional dependencies that might be needed by the extensions
+log "Installing additional dependencies..."
+python3 -m pip install insightface timm fairscale prettytable || log "WARNING: Some additional dependencies failed to install"
 python3 -m pip install ultralytics || log "WARNING: Failed to install ultralytics"
 
 # Verify installation
@@ -139,22 +160,7 @@ for dir in */; do
     fi
 done
 
-# Create update helper script
-cat > /workspace/update_extensions.sh << 'EOL'
-#!/bin/bash
-cd /workspace/ComfyUI/custom_nodes
-for dir in */; do
-    if [ -d "$dir/.git" ]; then
-        echo "Updating ${dir%/}..."
-        (cd "$dir" && git pull)
-    fi
-done
-echo "Extension update complete!"
-EOL
-chmod +x /workspace/update_extensions.sh
-
 # Final instructions
 log "ComfyUI extensions setup complete!"
 log "To start ComfyUI: cd /workspace && ./start_comfyui.sh"
-log "To update extensions later: ./update_extensions.sh"
 log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
