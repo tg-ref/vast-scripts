@@ -17,15 +17,22 @@ The `setup_comfyui.sh` script will:
 
 In your Vast.ai instance creation, use the following onstart command:
 
-```bash
-cd /workspace
-# Edit the script to ensure it uses the correct URLs for git clone operations
-sed -i 's/git clone /git clone --depth 1 https:\/\//g' setup_comfyui.sh
-# Explicitly fix the ComfyUI repo URL
-sed -i 's/git clone --depth 1 https:\/\/https:\/\/github.com/git clone --depth 1 https:\/\/github.com/g' setup_comfyui.sh
-# Run the modified script
-./setup_comfyui.sh
 
-### Usage in New Instance
+# First, install the core ComfyUI
 ```bash
-cd /workspace && curl -L -o setup.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh && chmod +x setup.sh && ./setup.sh
+cd /workspace && curl -L -o setup_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh && chmod +x setup_comfyui.sh && ./setup_comfyui.sh
+```
+
+# Next, install WAN 2.1 and other extensions
+```bash
+cd /workspace && curl -L -o setup_extensions.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_extensions.sh && chmod +x setup_extensions.sh && ./setup_extensions.sh
+```
+
+# Finally, start ComfyUI
+```bash
+cd /workspace && curl -L -o start_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/start_comfyui.sh && chmod +x start_comfyui.sh && ./start_comfyui.sh
+```
+
+
+
+
