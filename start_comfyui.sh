@@ -38,9 +38,7 @@ sleep 3
 log "Preparing ComfyUI startup configuration..."
 
 # Create extra arguments file
-cat > extra_args.txt << EOL
---listen 0.0.0.0 --port 8188 --enable-cors-header
-EOL
+echo "--listen 0.0.0.0 --port 8188 --enable-cors-header" > extra_args.txt
 chmod 755 extra_args.txt
 
 # Create portal configuration
@@ -67,7 +65,7 @@ fi
 
 # Create persistent startup script
 log "Creating persistent startup wrapper..."
-cat > /workspace/comfyui_persistent_start.sh << 'EOF'
+cat > /workspace/comfyui_persistent_start.sh << 'PERSISTENT_EOF'
 #!/bin/bash
 # Persistent ComfyUI Startup Wrapper
 
@@ -99,13 +97,13 @@ while true; do
     start_comfyui
     sleep 60
 done
-EOF
+PERSISTENT_EOF
 
 chmod +x /workspace/comfyui_persistent_start.sh
 
 # Create systemd service for persistent startup
 log "Creating systemd service..."
-cat > /etc/systemd/system/comfyui.service << 'EOF'
+cat > /etc/systemd/system/comfyui.service << 'SYSTEMD_EOF'
 [Unit]
 Description=Persistent ComfyUI Service
 After=network.target
@@ -120,7 +118,7 @@ RestartSec=30
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SYSTEMD_EOF
 
 # Reload systemd, enable and start service
 systemctl daemon-reload
