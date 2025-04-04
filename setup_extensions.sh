@@ -1,280 +1,114 @@
 #!/bin/bash
-# Extensions and tools setup for ComfyUI on Vast.ai
+# Extensions and tools setup for ComfyUI on Vast.ai with debugging
 
-# Log function
+# Log function with timestamps
 log() {
   echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
 }
 
-log "Starting ComfyUI extensions setup..."
+DEBUG_LOG="/workspace/wan_debug.log"
+echo "" > $DEBUG_LOG  # Clear debug log
 
-# Configure git to use https instead of git protocol
+log "Starting ComfyUI extensions setup (DEBUG MODE)..."
+log "This script will install WAN 2.1 and other extensions"
+
+# Print system info
+log "System information:" | tee -a $DEBUG_LOG
+uname -a >> $DEBUG_LOG
+df -h >> $DEBUG_LOG
+echo "Python version:" >> $DEBUG_LOG
+python --version >> $DEBUG_LOG
+echo "Pip version:" >> $DEBUG_LOG
+pip --version >> $DEBUG_LOG
+echo "Git version:" >> $DEBUG_LOG
+git --version >> $DEBUG_LOG
+
+# Configure git with debugging
+log "Configuring git..." | tee -a $DEBUG_LOG
 git config --global url."https://".insteadOf git://
+git config --global --list >> $DEBUG_LOG
 # Prevent git from asking for credentials
 export GIT_TERMINAL_PROMPT=0
+export GIT_SSL_NO_VERIFY=1
 
 # Check if ComfyUI is installed
 if [ ! -d "/workspace/ComfyUI" ]; then
-  log "ERROR: ComfyUI directory not found. Please run setup_comfyui.sh first."
+  log "ERROR: ComfyUI directory not found. Please run setup_comfyui.sh first." | tee -a $DEBUG_LOG
   exit 1
 fi
 
-# Create custom_nodes directory if it doesn't exist
+log "Installing WAN 2.1 Suite (with debugging)..." | tee -a $DEBUG_LOG
 mkdir -p /workspace/ComfyUI/custom_nodes
-
-# Install WAN 2.1 Suite
-log "Installing WAN 2.1 Suite..."
 cd /workspace/ComfyUI/custom_nodes
-if [ -d "ComfyUI-WAN-Suite" ]; then
-  log "WAN 2.1 extension already exists. Updating..."
-  cd ComfyUI-WAN-Suite
-  git pull
-else
-  git clone https://github.com/MoonRide303/ComfyUI-WAN-Suite.git
-  cd ComfyUI-WAN-Suite
-fi
-pip install -r requirements.txt
+log "Current directory: $(pwd)" | tee -a $DEBUG_LOG
+log "Cloning WAN 2.1 repository..." | tee -a $DEBUG_LOG
 
-# Download WAN 2.1 model
-log "Setting up WAN 2.1 model..."
+# Clone with full debug output
+git clone https://github.com/MoonRide303/ComfyUI-WAN-Suite.git 2>&1 | tee -a $DEBUG_LOG
+
+if [ ! -d "ComfyUI-WAN-Suite" ]; then
+  log "ERROR: Git clone failed! Trying alternative approach..." | tee -a $DEBUG_LOG
+  # Try curl as alternative
+  log "Downloading ZIP file instead..." | tee -a $DEBUG_LOG
+  curl -L https://github.com/MoonRide303/ComfyUI-WAN-Suite/archive/refs/heads/main.zip -o wan-suite.zip 2>&1 | tee -a $DEBUG_LOG
+  unzip -q wan-suite.zip 2>&1 | tee -a $DEBUG_LOG
+  rm wan-suite.zip
+  mv ComfyUI-WAN-Suite-main ComfyUI-WAN-Suite
+fi
+
+if [ -d "ComfyUI-WAN-Suite" ]; then
+  log "WAN 2.1 directory created successfully" | tee -a $DEBUG_LOG
+  cd ComfyUI-WAN-Suite
+  log "Installing WAN 2.1 requirements..." | tee -a $DEBUG_LOG
+  pip install -r requirements.txt 2>&1 | tee -a $DEBUG_LOG
+else
+  log "ERROR: Failed to create WAN 2.1 directory!" | tee -a $DEBUG_LOG
+fi
+
+# Download WAN 2.1 model with debugging
+log "Setting up WAN 2.1 model..." | tee -a $DEBUG_LOG
 mkdir -p /workspace/ComfyUI/models/wan_models
 cd /workspace/ComfyUI/models/wan_models
+log "Current directory: $(pwd)" | tee -a $DEBUG_LOG
 
-# Verify if model exists and is correct size
-WAN_MODEL_PATH="/workspace/ComfyUI/models/wan_models/wan_v2_1.pth"
-EXPECTED_SIZE="828495429"  # Expected size in bytes for wan_v2_1.pth
+log "Downloading WAN 2.1 model (with debugging)..." | tee -a $DEBUG_LOG
+TEMP_MODEL_FILE="wan_v2_1.pth.tmp"
+MODEL_FILE="wan_v2_1.pth"
 
-if [ -f "$WAN_MODEL_PATH" ]; then
-  WAN_MODEL_SIZE=$(stat -c%s "$WAN_MODEL_PATH" 2>/dev/null || echo "0")
-  if [ "$WAN_MODEL_SIZE" = "$EXPECTED_SIZE" ]; then
-    log "WAN 2.1 model already exists and is verified."
-  else
-    log "WAN 2.1 model appears to be incomplete or corrupted. Re-downloading..."
-    rm -f "$WAN_MODEL_PATH"
-    wget --no-verbose --show-progress https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth -O "$WAN_MODEL_PATH"
-  fi
-else
-  log "Downloading WAN 2.1 model..."
-  wget --no-verbose --show-progress https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth -O "$WAN_MODEL_PATH"
+# Remove any existing empty file
+if [ -f "$MODEL_FILE" ] && [ ! -s "$MODEL_FILE" ]; then
+  log "Removing existing empty model file" | tee -a $DEBUG_LOG
+  rm "$MODEL_FILE"
 fi
 
-# Verify download after attempt
-if [ -f "$WAN_MODEL_PATH" ]; then
-  WAN_MODEL_SIZE=$(stat -c%s "$WAN_MODEL_PATH" 2>/dev/null || echo "0")
-  if [ "$WAN_MODEL_SIZE" = "$EXPECTED_SIZE" ]; then
-    log "WAN 2.1 model successfully downloaded and verified."
-  else
-    log "WARNING: WAN 2.1 model verification failed. Size mismatch: Expected $EXPECTED_SIZE, got $WAN_MODEL_SIZE."
-  fi
+log "Trying wget download..." | tee -a $DEBUG_LOG
+wget -v https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth -O $TEMP_MODEL_FILE 2>&1 | tee -a $DEBUG_LOG
+
+if [ ! -s "$TEMP_MODEL_FILE" ]; then
+  log "wget failed, trying curl..." | tee -a $DEBUG_LOG
+  curl -L https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth -o $TEMP_MODEL_FILE 2>&1 | tee -a $DEBUG_LOG
+fi
+
+if [ -s "$TEMP_MODEL_FILE" ]; then
+  log "Model download successful, renaming to final filename" | tee -a $DEBUG_LOG
+  mv $TEMP_MODEL_FILE $MODEL_FILE
+  log "Model file size: $(du -h $MODEL_FILE | cut -f1)" | tee -a $DEBUG_LOG
 else
-  log "ERROR: Failed to download WAN 2.1 model."
+  log "ERROR: Failed to download model!" | tee -a $DEBUG_LOG
 fi
 
 # Create symlinks for model discovery
-log "Setting up model symlinks..."
+log "Setting up model symlinks..." | tee -a $DEBUG_LOG
 mkdir -p /workspace/ComfyUI/models/checkpoints
 ln -sf /workspace/ComfyUI/models/wan_models /workspace/ComfyUI/models/checkpoints/wan_models
 
-# Install ComfyUI Manager (for easy installation of other extensions)
-log "Installing ComfyUI Manager..."
-cd /workspace/ComfyUI/custom_nodes
-if [ -d "ComfyUI-Manager" ]; then
-  log "ComfyUI Manager already exists. Updating..."
-  cd ComfyUI-Manager
-  git pull
-else
-  git clone https://github.com/ltdrdata/ComfyUI-Manager.git
-fi
+# Check if things are installed
+log "Verifying installation..." | tee -a $DEBUG_LOG
+echo "WAN 2.1 Suite extension exists: $(test -d /workspace/ComfyUI/custom_nodes/ComfyUI-WAN-Suite && echo 'YES' || echo 'NO')" | tee -a $DEBUG_LOG
+echo "WAN 2.1 model exists: $(test -f /workspace/ComfyUI/models/wan_models/wan_v2_1.pth && echo 'YES' || echo 'NO')" | tee -a $DEBUG_LOG
+echo "WAN 2.1 model size: $(du -h /workspace/ComfyUI/models/wan_models/wan_v2_1.pth 2>/dev/null | cut -f1 || echo 'ERROR')" | tee -a $DEBUG_LOG
+echo "Symlink exists: $(test -L /workspace/ComfyUI/models/checkpoints/wan_models && echo 'YES' || echo 'NO')" | tee -a $DEBUG_LOG
 
-# Install ControlNet
-log "Installing ControlNet extension..."
-cd /workspace/ComfyUI/custom_nodes
-if [ -d "comfyui_controlnet_aux" ]; then
-  log "ControlNet already exists. Updating..."
-  cd comfyui_controlnet_aux
-  git pull
-else
-  git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git
-  cd comfyui_controlnet_aux
-fi
-pip install -r requirements.txt
-
-# Install Impact Pack
-log "Installing Impact Pack..."
-cd /workspace/ComfyUI/custom_nodes
-if [ -d "ComfyUI-Impact-Pack" ]; then
-  log "Impact Pack already exists. Updating..."
-  cd ComfyUI-Impact-Pack
-  git pull
-else
-  git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
-  cd ComfyUI-Impact-Pack
-fi
-pip install -r requirements.txt
-python install.py
-
-# Create a simple test workflow for WAN 2.1
-log "Creating test workflow for WAN 2.1..."
-mkdir -p /workspace/ComfyUI/test_workflows
-cat > /workspace/ComfyUI/test_workflows/wan_test.json << 'EOF'
-{
-  "last_node_id": 3,
-  "last_link_id": 2,
-  "nodes": [
-    {
-      "id": 1,
-      "type": "WAN_ImageUpscale",
-      "pos": [
-        300,
-        200
-      ],
-      "size": {
-        "0": 315,
-        "1": 122
-      },
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 1
-        },
-        {
-          "name": "upscale_by",
-          "type": "FLOAT",
-          "link": null,
-          "widget": {
-            "name": "upscale_by",
-            "config": [
-              "FLOAT",
-              {
-                "default": 2,
-                "min": 1,
-                "max": 8,
-                "step": 0.1
-              }
-            ]
-          },
-          "slot_index": 1
-        },
-        {
-          "name": "model_override",
-          "type": "MODEL",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            2
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WAN_ImageUpscale"
-      },
-      "widgets_values": [
-        2,
-        null
-      ]
-    },
-    {
-      "id": 2,
-      "type": "LoadImage",
-      "pos": [
-        30,
-        200
-      ],
-      "size": {
-        "0": 210,
-        "1": 250
-      },
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            1
-          ],
-          "slot_index": 0
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoadImage"
-      },
-      "widgets_values": [
-        "example.png",
-        "image"
-      ]
-    },
-    {
-      "id": 3,
-      "type": "PreviewImage",
-      "pos": [
-        630,
-        200
-      ],
-      "size": {
-        "0": 210,
-        "1": 246
-      },
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 2
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "PreviewImage"
-      }
-    }
-  ],
-  "links": [
-    [
-      1,
-      2,
-      0,
-      1,
-      0,
-      "IMAGE"
-    ],
-    [
-      2,
-      1,
-      0,
-      3,
-      0,
-      "IMAGE"
-    ]
-  ],
-  "groups": [],
-  "config": {},
-  "extra": {},
-  "version": 0.4
-}
-EOF
-
-# Create sample image for testing
-convert -size 256x256 plasma:fractal /workspace/ComfyUI/input/example.png 2>/dev/null || \
-log "Note: Could not create test image. 'convert' tool not available."
-
-log "Extensions setup complete!"
-log "To start ComfyUI with all extensions, run: cd /workspace/ComfyUI && python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header"
-log "A test workflow for WAN 2.1 is available at /workspace/ComfyUI/test_workflows/wan_test.json"
+log "WAN 2.1 installation complete. Check $DEBUG_LOG for detailed logs."
+log "You need to restart ComfyUI to see WAN 2.1 nodes:"
+log "pkill -f \"python main.py\" && cd /workspace/ComfyUI && python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header"
