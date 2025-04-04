@@ -1,83 +1,135 @@
 #!/bin/bash
-# Robust ComfyUI Startup and Monitoring Script
-# Ensures persistent ComfyUI operation across restarts
+# Robust ComfyUI Startup Script for Vast.ai
 
-# Strict error handling
-set -Eeo pipefail
-
-# Global configuration
-WORKSPACE="/workspace"
-COMFYUI_DIR="${WORKSPACE}/ComfyUI"
-STARTUP_LOG="${WORKSPACE}/comfyui_startup.log"
-PERSISTENT_LOG="${WORKSPACE}/comfyui_persistent.log"
-
-# Enhanced logging function
+# Logging function
 log() {
-    local level="${2:-INFO}"
+    local message="$1"
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    local message="[${timestamp}] [${level}] $1"
-    
-    echo "$message"
-    echo "$message" >> "$STARTUP_LOG"
+    echo "[${timestamp}] $message" | tee -a /workspace/comfyui_startup.log
 }
 
-# Comprehensive error handling
-graceful_exit() {
-    local error_message="${1:-Unknown error occurred}"
-    log "CRITICAL: $error_message" "ERROR"
-    
-    # Capture system diagnostics
-    {
-        echo "System Diagnostics:"
-        echo "Hostname: $(hostname)"
-        echo "Current User: $(whoami)"
-        echo "Current Directory: $(pwd)"
-        echo "Disk Space:"
-        df -h
-        echo "Network Configuration:"
-        ip addr
-    } >> "$STARTUP_LOG"
-    
+# Error handling function
+error_exit() {
+    log "ERROR: $1"
     exit 1
 }
 
-# Trap errors
-trap 'graceful_exit "Command failed: $BASH_COMMAND"' ERR
+# Ensure we're in the correct directory
+cd /workspace/ComfyUI || error_exit "Cannot change to ComfyUI directory"
+
+# Log script start
+log "Starting ComfyUI startup script..."
+
+# Detect GPU availability
+GPU_AVAILABLE=false
+if command -v nvidia-smi &> /dev/null; then
+    log "NVIDIA GPU detected"
+    GPU_AVAILABLE=true
+else
+    log "No NVIDIA GPU detected. Running in CPU mode."
+fi
+
+# Kill any existing ComfyUI processes
+log "Checking and terminating existing ComfyUI processes..."
+pkill -f "python.*main.py" || true
+sleep 3
+
+# Prepare startup configuration
+log "Preparing ComfyUI startup configuration..."
+
+# Create extra arguments file
+cat > extra_args.txt << EOL
+--listen 0.0.0.0 --port 8188 --enable-cors-header
+EOL
+chmod 755 extra_args.txt
+
+# Create portal configuration
+mkdir -p /etc
+cat > /etc/portal.yaml << EOL
+instance_portal:
+  app_host: localhost
+  app_port: 11111
+  tls_port: 1111
+  app_name: Instance Portal
+comfyui:
+  app_host: localhost
+  app_port: 8188
+  tls_port: 8188
+  app_name: ComfyUI
+EOL
+
+# Install additional dependencies if GPU is available
+if [ "$GPU_AVAILABLE" = true ]; then
+    log "Installing GPU-specific dependencies..."
+    python3 -m pip install torch torchvision torchaudio xformers || \
+        log "Warning: Failed to install GPU dependencies"
+fi
 
 # Create persistent startup script
-create_persistent_startup() {
-    log "Creating comprehensive persistent startup script..." "INFO"
-    
-    cat > "${WORKSPACE}/comfyui_persistent_launcher.sh" << 'EOL'
+log "Creating persistent startup wrapper..."
+cat > /workspace/comfyui_persistent_start.sh << 'EOF'
 #!/bin/bash
-# Comprehensive ComfyUI Persistent Launcher
+# Persistent ComfyUI Startup Wrapper
 
-# Logging function
 log() {
     echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1" >> /workspace/comfyui_persistent.log
 }
 
-# GPU Readiness Check
-check_gpu_ready() {
-    if command -v nvidia-smi &> /dev/null; then
-        while ! nvidia-smi &> /dev/null; do
-            log "Waiting for GPU to be ready..."
-            sleep 10
-        done
+start_comfyui() {
+    cd /workspace/ComfyUI
+    
+    # Kill existing processes
+    pkill -f "python.*main.py" || true
+    
+    # Start ComfyUI
+    nohup python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header >> /workspace/comfyui_output.log 2>&1 &
+    
+    # Wait and verify
+    sleep 10
+    
+    if pgrep -f "python.*main.py" > /dev/null; then
+        log "ComfyUI started successfully"
+    else
+        log "Failed to start ComfyUI"
     fi
 }
 
-# ComfyUI Startup Function
-start_comfyui() {
-    local max_retries=3
-    local retry_count=0
+# Restart loop
+while true; do
+    start_comfyui
+    sleep 60
+done
+EOF
 
-    while [ $retry_count -lt $max_retries ]; do
-        # Ensure we're in the right directory
-        cd /workspace/ComfyUI
+chmod +x /workspace/comfyui_persistent_start.sh
 
-        # Kill any existing ComfyUI processes
-        pkill -f "python.*main.py" || true
+# Create systemd service for persistent startup
+log "Creating systemd service..."
+cat > /etc/systemd/system/comfyui.service << 'EOF'
+[Unit]
+Description=Persistent ComfyUI Service
+After=network.target
 
-        # Start ComfyUI with comprehensive logging
-        log "Starting ComfyUI (Attempt $((retry_count +
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/workspace
+ExecStart=/workspace/comfyui_persistent_start.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload systemd, enable and start service
+systemctl daemon-reload
+systemctl enable comfyui.service
+systemctl start comfyui.service
+
+# Final startup and verification
+log "ComfyUI startup process complete"
+log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
+
+# Provide final status check
+systemctl status comfyui.service
