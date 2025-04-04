@@ -52,6 +52,8 @@ chmod +x setup_comfyui.sh && ./setup_comfyui.sh
 
 # 2. Download and run extension installer
 ```bash
+cd /workspace
+rm -rf ComfyUI/custom_nodes/*
 curl -L -o setup_extensions.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_extensions.sh
 chmod +x setup_extensions.sh && ./setup_extensions.sh
 ```
