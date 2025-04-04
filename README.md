@@ -5,19 +5,26 @@ These scripts automate the setup and deployment of ComfyUI on Vast.ai instances 
 
 ## Scripts
 
-### 1. `setup_comfyui.sh`
+### 1. `universal_comfyui_setup.sh`
+- **Universal, One-Command Setup Solution**
+- Automatically downloads and runs all necessary setup scripts
+- Configures ComfyUI, extensions, and persistent service
+- Performs comprehensive system diagnostic
+- Ideal for quick and consistent deployment across different instances
+
+### 2. `setup_comfyui.sh`
 - Prepares the core ComfyUI environment
 - Installs necessary dependencies
 - Configures GPU and CPU environments
 - Creates model directories
 
-### 2. `setup_extensions.sh`
+### 3. `setup_extensions.sh`
 - Installs ComfyUI extensions
 - Adds WAN 2.1 Suite
 - Downloads and configures additional models
 - Supports easy extension management
 
-### 3. `start_comfyui.sh`
+### 4. `start_comfyui.sh`
 - Configures network settings
 - Sets up portal and Caddy configuration
 - Manages ComfyUI process
@@ -25,7 +32,12 @@ These scripts automate the setup and deployment of ComfyUI on Vast.ai instances 
 
 ## Usage in Vast.ai
 
-### Onstart Command Sequence
+### Universal Setup (Recommended)
+```bash
+cd /workspace && curl -L -o universal_comfyui_setup.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/universal_comfyui_setup.sh && chmod +x universal_comfyui_setup.sh && ./universal_comfyui_setup.sh
+```
+
+### Detailed Setup Sequence
 ```bash
 # 1. Setup Core ComfyUI
 cd /workspace && curl -L -o setup_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh && chmod +x setup_comfyui.sh && ./setup_comfyui.sh
@@ -39,13 +51,15 @@ cd /workspace && curl -L -o start_comfyui.sh https://raw.githubusercontent.com/D
 
 ## Access and Logs
 - ComfyUI Interface: `http://<instance-ip>:8188`
-- Logs: `/workspace/comfyui.log`
-- Check logs: `tail -f /workspace/comfyui.log`
+- Universal Setup Logs: `/workspace/comfyui_diagnostic.log`
+- ComfyUI Logs: `/workspace/comfyui.log`
+- Check logs: `tail -f /workspace/comfyui_diagnostic.log`
 
 ## Troubleshooting
 - Verify GPU availability with `nvidia-smi`
 - Check Python environment with `which python`
-- Inspect ComfyUI logs for specific errors
+- Inspect diagnostic logs for specific errors
+- Use the universal setup script for consistent deployment
 
 ## Customization
 - Modify scripts to add more extensions
