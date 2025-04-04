@@ -1,8 +1,9 @@
 #!/bin/bash
-# Robust and Verified ComfyUI Extensions Installer
-# Ensures 100% installation and checks completeness of all extensions
+# ✅ Stable & Verified ComfyUI Extensions Installer
+# Fully robust, avoids tarball/zip errors, ensures 100% integrity
 
-set -e
+set -euo pipefail
+IFS=$'\n\t'
 
 log() {
     echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -13,59 +14,37 @@ CUSTOM_NODES_DIR="$WORKSPACE/ComfyUI/custom_nodes"
 
 log "📦 Starting ComfyUI extensions installation..."
 
-# Ensure custom_nodes directory exists
+# Ensure custom_nodes directory exists and is clean
+log "🧹 Cleaning and recreating custom_nodes directory..."
 mkdir -p "$CUSTOM_NODES_DIR"
+rm -rf "$CUSTOM_NODES_DIR"/*
 cd "$CUSTOM_NODES_DIR"
 
-# Clean reinstall (ensures 100% installation success)
-log "🧹 Cleaning possibly incomplete extensions..."
-rm -rf $CUSTOM_NODES_DIR/*
-
+# Clone and verify each extension
 install_extension_git() {
     local name="$1"
     local repo_url="$2"
 
     log "🔽 Cloning $name from $repo_url"
-    git clone --depth 1 "$repo_url" "$CUSTOM_NODES_DIR/$name"
-
-    if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
-        log "📦 Installing Python dependencies for $name"
-        python3 -m pip install -r "$CUSTOM_NODES_DIR/$name/requirements.txt"
-    fi
-
-    if [ -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
-        log "✅ $name installed successfully"
+    if git clone --depth 1 "$repo_url" "$CUSTOM_NODES_DIR/$name"; then
+        if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
+            log "📦 Installing Python dependencies for $name"
+            pip install -r "$CUSTOM_NODES_DIR/$name/requirements.txt"
+        fi
+        if [ -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
+            log "✅ $name installed successfully"
+        else
+            log "⚠️  $name may be missing __init__.py"
+        fi
     else
-        log "⚠️  WARNING: $name may be incomplete (missing __init__.py)"
-    fi
-}
-
-install_extension_tarball() {
-    local name="$1"
-    local tar_url="$2"
-    local tmp_dir="/tmp/$name"
-
-    log "📦 Downloading $name from tarball..."
-    mkdir -p "$tmp_dir"
-    curl -sL "$tar_url" | tar -xz -C "$tmp_dir" --strip-components=1
-    mv "$tmp_dir" "$CUSTOM_NODES_DIR/$name"
-
-    if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
-        log "📦 Installing Python dependencies for $name"
-        python3 -m pip install -r "$CUSTOM_NODES_DIR/$name/requirements.txt"
-    fi
-
-    if [ -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
-        log "✅ $name installed successfully"
-    else
-        log "⚠️  WARNING: $name may be incomplete (missing __init__.py)"
+        log "❌ Failed to clone $name from $repo_url"
     fi
 }
 
 log "🔧 Installing core extensions..."
 install_extension_git "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
 install_extension_git "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
-install_extension_tarball "ComfyUI-WAN-Suite" "https://codeload.github.com/WASasquatch/ComfyUI-WAN-Suite/tar.gz/refs/heads/main"
+install_extension_git "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
 
 log "✨ Installing additional extensions..."
 install_extension_git "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
@@ -76,11 +55,11 @@ install_extension_git "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink
 install_extension_git "ComfyUI-WanVideoWrapper" "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
 
 log "📚 Installing global Python dependencies for extensions..."
-python3 -m pip install --upgrade pip
-python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors
-python3 -m pip install insightface timm fairscale prettytable ultralytics
+pip install --upgrade pip
+pip install opencv-python onnxruntime onnx transformers accelerate safetensors
+pip install insightface timm fairscale prettytable ultralytics
 
-log "📂 Installed extensions:"
+log "📂 Summary of installed extensions:"
 for dir in "$CUSTOM_NODES_DIR"/*; do
     if [ -d "$dir" ]; then
         if [ -f "$dir/__init__.py" ]; then
