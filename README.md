@@ -26,6 +26,6 @@ sed -i 's/git clone --depth 1 https:\/\/https:\/\/github.com/git clone --depth 1
 # Run the modified script
 ./setup_comfyui.sh
 
-# in New instance
+### Usage in New Instance
 ```bash
 cd /workspace && curl -L -o setup.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh && chmod +x setup.sh && ./setup.sh
