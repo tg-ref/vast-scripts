@@ -1,91 +1,68 @@
 #!/bin/bash
-# ComfyUI Extensions Setup Script for Vast.ai
+# ComfyUI Custom Startup Script for Vast.ai
 
-# Log function
+# Log function for better visibility
 log() {
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
+  echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1" | tee -a /workspace/comfyui.log
 }
 
-# Error handling function
-error_exit() {
-    log "ERROR: $1"
-    exit 1
-}
+log "Starting ComfyUI setup..."
 
-# Ensure we're in the right directory
-cd /workspace/ComfyUI || error_exit "ComfyUI directory not found"
+# Navigate to ComfyUI directory
+cd /workspace/ComfyUI
 
-# Create custom nodes directory if it doesn't exist
-mkdir -p custom_nodes
+# Configure ComfyUI to listen on all interfaces
+log "Setting up ComfyUI to listen on all interfaces (0.0.0.0:8188)"
+echo "--listen 0.0.0.0 --port 8188 --enable-cors-header" > extra_args.txt
+chmod 755 extra_args.txt
 
-# List of extensions to install
-EXTENSIONS=(
-    "https://github.com/MoonRide303/ComfyUI-WAN-Suite.git"
-    # Add more extension repositories here
-)
+# Update portal configuration to expose ComfyUI correctly
+log "Updating portal configuration..."
+cat > /etc/portal.yaml <<EOL
+instance_portal:
+  app_host: localhost
+  app_port: 11111
+  tls_port: 1111
+  app_name: Instance Portal
+comfyui:
+  app_host: localhost
+  app_port: 8188
+  tls_port: 8188
+  app_name: ComfyUI
+EOL
 
-# Install each extension
-for ext_url in "${EXTENSIONS[@]}"; do
-    # Extract repository name
-    repo_name=$(basename "$ext_url" .git)
-    
-    log "Processing extension: $repo_name"
-    
-    # Remove existing extension if it exists
-    if [ -d "custom_nodes/$repo_name" ]; then
-        log "Removing existing $repo_name"
-        rm -rf "custom_nodes/$repo_name"
-    fi
-    
-    # Clone the extension
-    log "Cloning $ext_url"
-    git clone "$ext_url" "custom_nodes/$repo_name" || {
-        log "Failed to clone $ext_url. Trying alternative download method..."
-        
-        # Alternative download method using curl
-        repo_owner=$(echo "$ext_url" | cut -d'/' -f4)
-        repo=$(echo "$ext_url" | cut -d'/' -f5 | cut -d'.' -f1)
-        zip_url="https://github.com/$repo_owner/$repo/archive/refs/heads/main.zip"
-        
-        curl -L "$zip_url" -o "$repo_name.zip"
-        unzip -q "$repo_name.zip" -d "custom_nodes"
-        mv "custom_nodes/$repo_name-main" "custom_nodes/$repo_name"
-        rm "$repo_name.zip"
-    }
-    
-    # Check for requirements file and install if exists
-    if [ -f "custom_nodes/$repo_name/requirements.txt" ]; then
-        log "Installing requirements for $repo_name"
-        pip install -r "custom_nodes/$repo_name/requirements.txt"
-    fi
-done
+# Restart Caddy to apply new configuration
+log "Restarting Caddy to apply new configuration..."
+supervisorctl restart caddy
 
-# Special handling for WAN Suite model
-log "Setting up WAN 2.1 model..."
-mkdir -p /workspace/ComfyUI/models/wan_models
-cd /workspace/ComfyUI/models/wan_models
-
-# Download WAN 2.1 model
-MODEL_URL="https://huggingface.co/casmirc/wan_v2_1/resolve/main/wan_v2_1.pth"
-MODEL_FILE="wan_v2_1.pth"
-
-log "Downloading WAN 2.1 model..."
-if wget -O "$MODEL_FILE" "$MODEL_URL"; then
-    log "WAN 2.1 model downloaded successfully"
-else
-    log "Wget failed, trying curl..."
-    curl -L "$MODEL_URL" -o "$MODEL_FILE"
+# Kill any existing ComfyUI processes
+if pgrep -f "python main.py" > /dev/null; then
+  log "Stopping existing ComfyUI processes..."
+  pkill -f "python main.py"
+  sleep 2
 fi
 
-# Verify model download
-if [ -s "$MODEL_FILE" ]; then
-    log "Model file size: $(du -h "$MODEL_FILE" | cut -f1)"
-    
-    # Create symlinks for model discovery
-    mkdir -p /workspace/ComfyUI/models/checkpoints
-    ln -sf /workspace/ComfyUI/models/wan_models /workspace/ComfyUI/models/checkpoints/wan_models
-else
-    log "ERROR: Failed to download WAN 2.1 model"
-fi
+# Ensure we're using the right Python environment
+source /venv/main/bin/activate
 
-log "ComfyUI extensions setup complete!"
+# Start ComfyUI with public access enabled
+log "Starting ComfyUI with public access enabled..."
+nohup python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header > /workspace/comfyui.log 2>&1 &
+
+# Add a wait to ensure ComfyUI starts properly
+sleep 5
+
+# Check if ComfyUI is running
+if pgrep -f "python main.py" > /dev/null; then
+  log "ComfyUI started successfully!"
+  
+  # Get the instance IP address
+  INSTANCE_IP=$(hostname -I | awk '{print $1}')
+  
+  log "ComfyUI should now be accessible via:"
+  log "- http://${INSTANCE_IP}:8188"
+  log "- Also through the Vast.ai 'Open' button interface"
+  log "- Check logs with: tail -f /workspace/comfyui.log"
+else
+  log "ERROR: ComfyUI failed to start! Check logs for details."
+fi
