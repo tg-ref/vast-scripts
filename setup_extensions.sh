@@ -21,21 +21,12 @@ cd "$CUSTOM_NODES_DIR"
 log "🧹 Cleaning possibly incomplete extensions..."
 rm -rf $CUSTOM_NODES_DIR/*
 
-install_extension_tarball() {
+install_extension_git() {
     local name="$1"
-    local tar_url="$2"
+    local repo_url="$2"
 
-    log "📦 Downloading and extracting $name from tarball..."
-    curl -L "$tar_url" -o "/tmp/${name}.tar.gz"
-
-    # Try extracting the tarball, fallback to .zip if tar.gz fails
-    mkdir -p "$CUSTOM_NODES_DIR/$name"
-    if tar -xzf "/tmp/${name}.tar.gz" --strip-components=1 -C "$CUSTOM_NODES_DIR/$name"; then
-        log "📦 Extracted $name successfully"
-    else
-        log "⚠️ Tarball failed, trying ZIP format for $name..."
-        unzip "/tmp/${name}.tar.gz" -d "$CUSTOM_NODES_DIR/$name"
-    fi
+    log "🔽 Cloning $name from $repo_url"
+    git clone --depth 1 "$repo_url" "$CUSTOM_NODES_DIR/$name"
 
     if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
         log "📦 Installing Python dependencies for $name"
@@ -49,16 +40,15 @@ install_extension_tarball() {
     fi
 }
 
-install_extension_git() {
+install_extension_tarball() {
     local name="$1"
-    local repo_url="$2"
+    local tar_url="$2"
+    local tmp_dir="/tmp/$name"
 
-    log "🔽 Cloning $name from $repo_url"
-    if [ -d "$CUSTOM_NODES_DIR/$name" ]; then
-        log "🧹 Removing existing directory for $name"
-        rm -rf "$CUSTOM_NODES_DIR/$name"
-    fi
-    git clone "$repo_url" "$CUSTOM_NODES_DIR/$name"
+    log "📦 Downloading $name from tarball..."
+    mkdir -p "$tmp_dir"
+    curl -sL "$tar_url" | tar -xz -C "$tmp_dir" --strip-components=1
+    mv "$tmp_dir" "$CUSTOM_NODES_DIR/$name"
 
     if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
         log "📦 Installing Python dependencies for $name"
@@ -75,7 +65,7 @@ install_extension_git() {
 log "🔧 Installing core extensions..."
 install_extension_git "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
 install_extension_git "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
-install_extension_tarball "ComfyUI-WAN-Suite" "https://codeload.github.com/WASasquatch/ComfyUI-WAN-Suite/legacy.tar.gz/main"
+install_extension_tarball "ComfyUI-WAN-Suite" "https://codeload.github.com/WASasquatch/ComfyUI-WAN-Suite/tar.gz/refs/heads/main"
 
 log "✨ Installing additional extensions..."
 install_extension_git "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
@@ -86,9 +76,9 @@ install_extension_git "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink
 install_extension_git "ComfyUI-WanVideoWrapper" "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
 
 log "📚 Installing global Python dependencies for extensions..."
+python3 -m pip install --upgrade pip
 python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors
-python3 -m pip install insightface timm fairscale prettytable
-python3 -m pip install ultralytics
+python3 -m pip install insightface timm fairscale prettytable ultralytics
 
 log "📂 Installed extensions:"
 for dir in "$CUSTOM_NODES_DIR"/*; do
