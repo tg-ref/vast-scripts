@@ -1,23 +1,22 @@
 #!/bin/bash
-# ComfyUI Extensions Setup Script for Vast.ai
-# Designed to work reliably in Docker container environments
+# Robust ComfyUI Extensions Setup for Vast.ai
+# Designed for reliable deployment across multiple instances
+# https://github.com/DnsSrinath/vast-scripts
 
-# Error handling setup
+# Error handling
 set -e
 
 # Logging function
 log() {
-    local level="${2:-INFO}"
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo "[${timestamp}] [${level}] $1"
-    echo "[${timestamp}] [${level}] $1" >> "/workspace/comfyui_extensions.log"
+    echo "[${timestamp}] $1"
 }
 
 log "Starting ComfyUI Extensions Setup"
 
 # Verify ComfyUI is installed
 if [ ! -d "/workspace/ComfyUI" ]; then
-    log "ComfyUI not found at /workspace/ComfyUI. Please install it first." "ERROR"
+    log "ERROR: ComfyUI not found at /workspace/ComfyUI. Please install it first."
     exit 1
 fi
 
@@ -29,182 +28,109 @@ cd /workspace/ComfyUI/custom_nodes
 if command -v nvidia-smi &> /dev/null; then
     log "NVIDIA GPU detected. Installing GPU-optimized extensions."
 else
-    log "No NVIDIA GPU detected. Some extensions may not work properly." "WARN"
+    log "WARNING: No NVIDIA GPU detected. Some extensions may not work properly."
 fi
 
-# Install git if not already installed (some minimal images might not have it)
-if ! command -v git &> /dev/null; then
-    log "Git not found. Installing git..."
-    apt-get update && apt-get install -y git || {
-        log "Failed to install git." "ERROR"
-        log "Continuing without git, some installations may fail." "WARN"
-    }
-fi
-
-# --------------------------
-# EXTENSION INSTALLATION
-# --------------------------
-# Using direct git cloning with fallback to custom URLs
-
-# Function to handle installation
+# Function to install an extension via git
 install_extension() {
-    local git_url="$1"
-    local name="$2"
-    local zip_url="$3"
-    local target_dir="/workspace/ComfyUI/custom_nodes/$name"
+    local repo_url="$1"
+    local dir_name="$2"
+    local branch="${3:-main}"
     
-    # Skip if directory already exists
-    if [ -d "$target_dir" ]; then
-        log "Extension '$name' already exists, skipping." "INFO"
+    if [ -d "$dir_name" ]; then
+        log "$dir_name already exists, skipping installation."
         return 0
     fi
     
-    log "Installing extension: $name"
+    log "Installing $dir_name..."
     
-    # Try git clone first (no authentication)
-    if command -v git &> /dev/null; then
-        log "Attempting to clone $name via git..."
-        if git clone --depth=1 "$git_url" "$target_dir" 2>/dev/null; then
-            log "Successfully cloned $name"
-            
-            # Install requirements if present
-            if [ -f "$target_dir/requirements.txt" ]; then
-                log "Installing requirements for $name"
-                cd "$target_dir"
-                python3 -m pip install -r requirements.txt || log "Failed to install some requirements for $name" "WARN"
-                cd - > /dev/null
-            fi
-            return 0
-        else
-            log "Git clone failed for $name, trying alternative download method..." "WARN"
-        fi
-    fi
-    
-    # If git clone failed or git not available, try direct download
-    if [ -n "$zip_url" ]; then
-        log "Attempting to download $name via direct URL..."
+    # Clone with depth=1 for faster downloads
+    if git clone --depth=1 --branch "$branch" "$repo_url" "$dir_name"; then
+        log "Successfully cloned $dir_name"
         
-        # Create temp directory
-        local temp_dir=$(mktemp -d)
-        
-        # Try wget with retries
-        if wget --tries=3 --timeout=60 "$zip_url" -O "$temp_dir/extension.zip"; then
-            mkdir -p "$target_dir"
-            if unzip -q "$temp_dir/extension.zip" -d "$target_dir"; then
-                log "Successfully installed $name via direct download"
-                
-                # Install requirements if present
-                if [ -f "$target_dir/requirements.txt" ]; then
-                    log "Installing requirements for $name"
-                    cd "$target_dir"
-                    python3 -m pip install -r requirements.txt || log "Failed to install some requirements for $name" "WARN"
-                    cd - > /dev/null
-                fi
-                rm -rf "$temp_dir"
-                return 0
-            else
-                log "Failed to extract $name" "ERROR"
-                rm -rf "$temp_dir"
-            fi
-        else
-            log "Failed to download $name" "WARN"
-            rm -rf "$temp_dir"
+        # Install requirements if present
+        if [ -f "$dir_name/requirements.txt" ]; then
+            log "Installing requirements for $dir_name"
+            cd "$dir_name"
+            python3 -m pip install -r requirements.txt || log "WARNING: Some requirements for $dir_name failed to install"
+            cd ..
         fi
+        return 0
+    else
+        log "ERROR: Failed to clone $dir_name"
+        return 1
     fi
-    
-    # As a last resort, try to install manually with a fallback mechanism
-    log "Attempting manual installation for $name..." "INFO"
-    case "$name" in
-        "ComfyUI-Manager")
-            log "Manual installation of ComfyUI-Manager..."
-            mkdir -p "$target_dir"
-            cd "$target_dir"
-            # Minimal files needed for ComfyUI-Manager
-            cat > __init__.py << 'EOL'
-import os
-import sys
-import importlib.util
-import torch
-import folder_paths
-from .install import Node_Manager
-
-NODE_CLASS_MAPPINGS = {
-    "Node Manager": Node_Manager
 }
 
-__all__ = ['NODE_CLASS_MAPPINGS']
-EOL
-            
-            mkdir -p install
-            cat > install/__init__.py << 'EOL'
-class Node_Manager:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {}}
+# Install core extensions - retry mechanism built in
+install_with_retry() {
+    local repo_url="$1"
+    local dir_name="$2"
+    local branch="${3:-main}"
+    local max_retries=3
+    local retry_count=0
     
-    RETURN_TYPES = ()
-    FUNCTION = "manager"
-    CATEGORY = "Manager"
-    
-    def manager(self):
-        print("ComfyUI-Manager initialized in basic mode")
-        return {}
-EOL
-            log "Basic ComfyUI-Manager installed" "INFO"
-            cd - > /dev/null
+    while [ $retry_count -lt $max_retries ]; do
+        if install_extension "$repo_url" "$dir_name" "$branch"; then
             return 0
-            ;;
-        *)
-            log "No manual installation method available for $name" "ERROR"
-            return 1
-            ;;
-    esac
+        else
+            retry_count=$((retry_count + 1))
+            log "Retry $retry_count/$max_retries for $dir_name"
+            sleep 2
+        fi
+    done
+    
+    log "ERROR: Failed to install $dir_name after $max_retries attempts"
+    return 1
 }
 
-# --------------------------
-# CORE EXTENSIONS
-# --------------------------
-
-# Install ComfyUI-Manager (Extension manager)
-install_extension "https://github.com/ltdrdata/ComfyUI-Manager.git" "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager/archive/refs/heads/main.zip"
-
-# Install ComfyUI-Impact-Pack
-install_extension "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git" "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack/archive/refs/heads/main.zip"
-
-# Install ComfyUI-WAN-Suite
-install_extension "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git" "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite/archive/refs/heads/main.zip"
-
-# --------------------------
-# ADDITIONAL USEFUL EXTENSIONS
-# --------------------------
-
-# Install ComfyUI-nodes-base
-install_extension "https://github.com/Acly/comfyui-nodes-base.git" "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base/archive/refs/heads/main.zip"
-
-# Install ComfyUI_IPAdapter_plus
-install_extension "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git" "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus/archive/refs/heads/main.zip"
-
-# Install comfyui-nodes-rgthree
-install_extension "https://github.com/rgthree/comfyui-nodes-rgthree.git" "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree/archive/refs/heads/main.zip"
-
-# --------------------------
-# INSTALL COMMON DEPENDENCIES
-# --------------------------
-
-log "Installing common Python dependencies for extensions"
+# Install essential dependencies first
+log "Installing essential dependencies..."
 python3 -m pip install --upgrade pip
 
-# Install dependencies in batches to handle errors gracefully
-python3 -m pip install opencv-python || log "Failed to install opencv-python" "WARN"
-python3 -m pip install onnxruntime onnx || log "Failed to install onnxruntime/onnx" "WARN"
-python3 -m pip install transformers accelerate safetensors || log "Failed to install transformer packages" "WARN"
-python3 -m pip install insightface timm fairscale prettytable || log "Failed to install some dependencies" "WARN"
+# Core Extensions - Each with retry mechanism
+log "Installing core extensions..."
 
-# Try to install ultralytics (often causes issues)
-python3 -m pip install ultralytics || log "Failed to install ultralytics" "WARN"
+# Install ComfyUI Manager
+install_with_retry "https://github.com/ltdrdata/ComfyUI-Manager.git" "ComfyUI-Manager" || 
+    log "WARNING: Failed to install ComfyUI-Manager"
 
-# Installation summary
-cd /workspace/ComfyUI/custom_nodes
+# Install ComfyUI Impact Pack
+install_with_retry "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git" "ComfyUI-Impact-Pack" || 
+    log "WARNING: Failed to install ComfyUI-Impact-Pack"
+
+# Install WAN Suite
+install_with_retry "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git" "ComfyUI-WAN-Suite" || 
+    log "WARNING: Failed to install ComfyUI-WAN-Suite"
+
+# Install additional useful extensions
+log "Installing additional extensions..."
+
+# Install node-base
+install_with_retry "https://github.com/Acly/comfyui-nodes-base.git" "comfyui-nodes-base" || 
+    log "WARNING: Failed to install comfyui-nodes-base"
+
+# Install IPAdapter Plus
+install_with_retry "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git" "ComfyUI_IPAdapter_plus" || 
+    log "WARNING: Failed to install ComfyUI_IPAdapter_plus"
+
+# Install rgthree nodes
+install_with_retry "https://github.com/rgthree/comfyui-nodes-rgthree.git" "comfyui-nodes-rgthree" || 
+    log "WARNING: Failed to install comfyui-nodes-rgthree"
+
+# Install ControlNet Aux
+install_with_retry "https://github.com/Fannovel16/comfyui_controlnet_aux.git" "comfyui_controlnet_aux" || 
+    log "WARNING: Failed to install comfyui_controlnet_aux"
+
+# Install dependencies in batches with error handling
+log "Installing common Python dependencies for extensions..."
+python3 -m pip install opencv-python || log "WARNING: Failed to install opencv-python"
+python3 -m pip install onnxruntime onnx || log "WARNING: Failed to install onnx packages"
+python3 -m pip install transformers accelerate safetensors || log "WARNING: Failed to install transformer packages"
+python3 -m pip install insightface timm fairscale prettytable || log "WARNING: Failed to install additional packages"
+python3 -m pip install ultralytics || log "WARNING: Failed to install ultralytics"
+
+# Verify installation
 log "Extension installation complete!"
 log "Installed extensions:"
 for dir in */; do
@@ -213,11 +139,7 @@ for dir in */; do
     fi
 done
 
-# Final guidance
-log "To start ComfyUI with these extensions, run: cd /workspace && ./start_comfyui.sh"
-log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
-
-# Create a simple script to update extensions
+# Create update helper script
 cat > /workspace/update_extensions.sh << 'EOL'
 #!/bin/bash
 cd /workspace/ComfyUI/custom_nodes
@@ -227,7 +149,12 @@ for dir in */; do
         (cd "$dir" && git pull)
     fi
 done
-echo "Extension update complete."
+echo "Extension update complete!"
 EOL
 chmod +x /workspace/update_extensions.sh
-log "Created update_extensions.sh script for future updates" "INFO"
+
+# Final instructions
+log "ComfyUI extensions setup complete!"
+log "To start ComfyUI: cd /workspace && ./start_comfyui.sh"
+log "To update extensions later: ./update_extensions.sh"
+log "Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
