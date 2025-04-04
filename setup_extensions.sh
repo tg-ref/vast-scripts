@@ -1,5 +1,5 @@
 #!/bin/bash
-# ComfyUI Extensions Installation Script with verified direct download links
+# Fixed ComfyUI Extensions Installation Script
 # https://github.com/DnsSrinath/vast-scripts
 
 # Logging function
@@ -19,56 +19,42 @@ fi
 mkdir -p /workspace/ComfyUI/custom_nodes
 cd /workspace/ComfyUI/custom_nodes
 
-# Function to download and install extension
+# Function to install extension
 install_extension() {
     local name="$1"
-    local zip_url="$2"
+    local repo_url="$2"
     local target_dir="/workspace/ComfyUI/custom_nodes/$name"
     
-    if [ -d "$target_dir" ]; then
-        log "$name already exists, skipping."
+    # Skip if already exists and has __init__.py
+    if [ -d "$target_dir" ] && [ -f "$target_dir/__init__.py" ]; then
+        log "$name already exists and has __init__.py, skipping."
         return 0
+    elif [ -d "$target_dir" ]; then
+        log "$name exists but may be incomplete. Removing and reinstalling."
+        rm -rf "$target_dir"
     fi
     
     log "Installing $name..."
-    wget -O extension.zip "$zip_url"
     
-    if [ -f "extension.zip" ]; then
-        mkdir -p "$target_dir"
-        mkdir -p temp_extract
-        unzip -q extension.zip -d temp_extract
+    # Clone directly - most reliable method
+    if git clone --depth=1 "$repo_url" "$target_dir"; then
+        log "Successfully installed $name"
         
-        # Find the correct directory and move its contents
-        if [ -d "temp_extract/$name-main" ]; then
-            mv "temp_extract/$name-main"/* "$target_dir"/
-        elif [ -d "temp_extract/$name-master" ]; then
-            mv "temp_extract/$name-master"/* "$target_dir"/
-        else
-            # Try to find any directory and move its contents
-            first_dir=$(find temp_extract -maxdepth 1 -type d | sort | head -n 2 | tail -n 1)
-            if [ -n "$first_dir" ]; then
-                mv "$first_dir"/* "$target_dir"/
-            else
-                # If all else fails, move everything
-                mv temp_extract/* "$target_dir"/
-            fi
+        # Verify __init__.py exists
+        if [ ! -f "$target_dir/__init__.py" ]; then
+            log "WARNING: $name is missing __init__.py file"
         fi
         
-        # Clean up
-        rm -rf temp_extract extension.zip
-        
-        # Install requirements
+        # Install requirements if present
         if [ -f "$target_dir/requirements.txt" ]; then
-            log "Installing requirements for $name..."
+            log "Installing requirements for $name"
             cd "$target_dir"
-            python3 -m pip install -r requirements.txt || log "WARNING: Some requirements for $name failed to install"
-            cd /workspace/ComfyUI/custom_nodes
+            python3 -m pip install -r requirements.txt
+            cd ..
         fi
-        
-        log "$name installed successfully."
         return 0
     else
-        log "Failed to download $name."
+        log "ERROR: Failed to install $name"
         return 1
     fi
 }
@@ -77,40 +63,45 @@ install_extension() {
 log "Installing core extensions..."
 
 # ComfyUI-Manager
-install_extension "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager/archive/refs/heads/main.zip"
+install_extension "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
 
 # ComfyUI-Impact-Pack
-install_extension "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack/archive/refs/tags/v2.5.6.zip"
+install_extension "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
 
 # ComfyUI-WAN-Suite
-install_extension "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite/archive/refs/heads/main.zip"
+install_extension "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
 
-# Install additional extensions
+# Additional extensions
 log "Installing additional extensions..."
 
 # ComfyUI-nodes-base
-install_extension "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base/archive/refs/heads/main.zip"
+install_extension "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
 
 # ComfyUI_IPAdapter_plus
-install_extension "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus/archive/refs/heads/main.zip"
+install_extension "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
 
 # comfyui-nodes-rgthree
-install_extension "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree/archive/refs/heads/main.zip"
+install_extension "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree.git"
 
 # Install common dependencies
 log "Installing common Python dependencies for extensions..."
-python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors || log "WARNING: Some core dependencies failed to install"
-python3 -m pip install insightface timm fairscale prettytable || log "WARNING: Some additional dependencies failed to install"
-python3 -m pip install ultralytics || log "WARNING: Failed to install ultralytics"
+python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors
+python3 -m pip install insightface timm fairscale prettytable
+python3 -m pip install ultralytics
 
 # Verify installation
 log "Extension installation complete!"
 log "Installed extensions:"
 for dir in */; do
-    if [ -d "$dir" ]; then
-        log "  - ${dir%/}"
+    if [ -d "$dir" ] && [ -f "${dir}__init__.py" ]; then
+        log "  - ${dir%/} (complete)"
+    elif [ -d "$dir" ]; then
+        log "  - ${dir%/} (may be incomplete)"
     fi
 done
+
+# Create credentials file to avoid GitHub authentication prompts
+git config --global credential.helper store
 
 # Final instructions
 log "ComfyUI extensions setup complete!"
