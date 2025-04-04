@@ -1,6 +1,7 @@
 #!/bin/bash
 # Robust ComfyUI Core Installation Script
 # Designed for reliable setup across Vast.ai instances
+# Modified to work with Docker containers
 
 # Strict error handling
 set -Eeo pipefail
@@ -155,76 +156,130 @@ install_gpu_dependencies() {
     fi
 }
 
-# Create persistent startup script
+# Create startup script
 create_startup_script() {
-    log "Creating persistent startup script..." "INFO"
+    log "Creating startup script..." "INFO"
     
-    cat > /workspace/comfyui_persistent_start.sh << 'EOL'
+    cat > /workspace/start_comfyui.sh << 'EOL'
 #!/bin/bash
-# Persistent ComfyUI Startup Script
+# ComfyUI Startup Script for Docker/Vast.ai environments
 
 # Logging function
 log() {
-    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1" >> /workspace/comfyui_persistent.log
+    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    local message="[${timestamp}] $1"
+    echo "$message"
+    echo "$message" >> /workspace/comfyui_startup.log
 }
 
-# Main startup function
-start_comfyui() {
-    cd /workspace/ComfyUI
-    
-    # Kill any existing ComfyUI processes
-    pkill -f "python.*main.py" || true
-    
-    # Start ComfyUI with nohup to keep running
-    nohup python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header >> /workspace/comfyui_output.log 2>&1 &
-    
-    # Wait and verify startup
-    sleep 10
-    
-    if pgrep -f "python.*main.py" > /dev/null; then
-        log "ComfyUI started successfully"
-    else
-        log "Failed to start ComfyUI"
-    fi
+log "Starting ComfyUI..."
+
+# Check if ComfyUI is already running
+if pgrep -f "python.*main.py" > /dev/null; then
+    log "ComfyUI is already running. Terminating existing process..."
+    pkill -f "python.*main.py"
+    sleep 5
+fi
+
+# Navigate to ComfyUI directory
+cd /workspace/ComfyUI || {
+    log "ERROR: ComfyUI directory not found"
+    exit 1
 }
 
-# Restart on exit
-while true; do
-    start_comfyui
-    
-    # Wait before potential restart
-    sleep 60
-done
+# Start ComfyUI
+log "Starting ComfyUI server..."
+python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header
 EOL
 
-    chmod +x /workspace/comfyui_persistent_start.sh
+    chmod +x /workspace/start_comfyui.sh
+    
+    # Also create a background version for persistent running
+    cat > /workspace/start_comfyui_background.sh << 'EOL'
+#!/bin/bash
+# ComfyUI Background Startup Script for Docker/Vast.ai environments
+
+# Logging function
+log() {
+    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    local message="[${timestamp}] $1"
+    echo "$message"
+    echo "$message" >> /workspace/comfyui_startup.log
 }
 
-# Create systemd service for persistent startup
-create_systemd_service() {
-    log "Creating systemd service for persistent startup..." "INFO"
-    
-    cat > /etc/systemd/system/comfyui.service << 'EOL'
-[Unit]
-Description=Persistent ComfyUI Service
-After=network.target
+log "Starting ComfyUI in background mode..."
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/workspace
-ExecStart=/workspace/comfyui_persistent_start.sh
-Restart=always
-RestartSec=30
+# Check if ComfyUI is already running
+if pgrep -f "python.*main.py" > /dev/null; then
+    log "ComfyUI is already running. Terminating existing process..."
+    pkill -f "python.*main.py"
+    sleep 5
+fi
 
-[Install]
-WantedBy=multi-user.target
+# Navigate to ComfyUI directory
+cd /workspace/ComfyUI || {
+    log "ERROR: ComfyUI directory not found"
+    exit 1
+}
+
+# Start ComfyUI in background with nohup
+log "Starting ComfyUI server in background..."
+nohup python3 main.py --listen 0.0.0.0 --port 8188 --enable-cors-header > /workspace/comfyui_output.log 2>&1 &
+
+# Check if process started successfully
+sleep 5
+if pgrep -f "python.*main.py" > /dev/null; then
+    log "ComfyUI started successfully in background"
+    IP_ADDRESS=$(hostname -I | awk '{print $1}')
+    log "ComfyUI is accessible at: http://${IP_ADDRESS}:8188"
+else
+    log "ERROR: Failed to start ComfyUI"
+fi
 EOL
 
-    # Enable and start the service
-    systemctl daemon-reload
-    systemctl enable comfyui.service
-    systemctl start comfyui.service
+    chmod +x /workspace/start_comfyui_background.sh
+}
+
+# Setup basic extensions without requiring GitHub authentication
+setup_basic_extensions() {
+    log "Setting up basic extensions..." "INFO"
+    
+    # Create custom_nodes directory if it doesn't exist
+    mkdir -p /workspace/ComfyUI/custom_nodes
+    
+    # List of public extensions to install
+    local extensions=(
+        "https://github.com/ltdrdata/ComfyUI-Manager.git"
+    )
+    
+    # Clone each extension
+    for extension in "${extensions[@]}"; do
+        local extension_name=$(basename "$extension" .git)
+        local target_dir="/workspace/ComfyUI/custom_nodes/$extension_name"
+        
+        log "Installing extension: $extension_name" "INFO"
+        
+        # Skip if already exists
+        if [ -d "$target_dir" ]; then
+            log "Extension $extension_name already exists, skipping." "INFO"
+            continue
+        fi
+        
+        # Clone with multiple retry attempts
+        for _ in {1..3}; do
+            if git clone "$extension" "$target_dir"; then
+                break
+            fi
+            log "Extension clone failed. Retrying..." "WARN"
+            sleep 5
+        done
+        
+        # Install requirements if present
+        if [ -f "$target_dir/requirements.txt" ]; then
+            log "Installing requirements for $extension_name" "INFO"
+            python3 -m pip install -r "$target_dir/requirements.txt" || log "Failed to install requirements for $extension_name" "WARN"
+        fi
+    done
 }
 
 # Main execution function
@@ -237,9 +292,14 @@ main() {
     create_model_directories
     install_gpu_dependencies
     create_startup_script
-    create_systemd_service
-
+    setup_basic_extensions
+    
+    # Print final instructions
+    IP_ADDRESS=$(hostname -I | awk '{print $1}')
     log "ComfyUI setup completed successfully!" "SUCCESS"
+    log "To start ComfyUI in foreground mode: /workspace/start_comfyui.sh" "INFO"
+    log "To start ComfyUI in background mode: /workspace/start_comfyui_background.sh" "INFO"
+    log "ComfyUI will be accessible at: http://${IP_ADDRESS}:8188" "INFO"
 }
 
 # Execute main function
