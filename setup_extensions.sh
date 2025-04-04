@@ -1,75 +1,167 @@
 #!/bin/bash
-# ✅ Stable & Verified ComfyUI Extensions Installer
-# Fully robust, avoids tarball/zip errors, ensures 100% integrity
+# 🐳 ComfyUI Extensions Installer
+# Handles repository cloning without interactive authentication
 
 set -euo pipefail
-IFS=$'\n\t'
 
+# Logging function
 log() {
-    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
-WORKSPACE="/workspace"
-CUSTOM_NODES_DIR="$WORKSPACE/ComfyUI/custom_nodes"
+# Error handling function
+error_exit() {
+    echo "[ERROR] $1" >&2
+    exit 1
+}
 
-log "📦 Starting ComfyUI extensions installation..."
+# Workspace and directory setup
+WORKSPACE="${WORKSPACE:-/workspace}"
+COMFYUI_DIR="$WORKSPACE/ComfyUI"
+CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
-# Ensure custom_nodes directory exists and is clean
-log "🧹 Cleaning and recreating custom_nodes directory..."
+# Create directories
 mkdir -p "$CUSTOM_NODES_DIR"
-rm -rf "$CUSTOM_NODES_DIR"/*
-cd "$CUSTOM_NODES_DIR"
 
-# Clone and verify each extension
-install_extension_git() {
+# Cleanup function
+cleanup() {
+    log "🧹 Cleaning up previous extensions..."
+    rm -rf "$CUSTOM_NODES_DIR"/*
+}
+
+# Extension installation function with multiple clone strategies
+install_extension() {
     local name="$1"
     local repo_url="$2"
+    local branch="${3:-main}"
+    local clone_success=false
 
-    log "🔽 Cloning $name from $repo_url"
-    if git clone --depth 1 "$repo_url" "$CUSTOM_NODES_DIR/$name"; then
-        if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
-            log "📦 Installing Python dependencies for $name"
-            pip install -r "$CUSTOM_NODES_DIR/$name/requirements.txt"
+    log "🔽 Attempting to install $name from $repo_url"
+
+    # Clone strategies array
+    local clone_strategies=(
+        # Strategy 1: Direct HTTPS clone (most common)
+        "git clone --depth 1 -b $branch $repo_url $CUSTOM_NODES_DIR/$name"
+        
+        # Strategy 2: Shallow clone with no user interaction
+        "GIT_TERMINAL_PROMPT=0 git clone --depth 1 -b $branch $repo_url $CUSTOM_NODES_DIR/$name"
+        
+        # Strategy 3: Convert to public HTTPS URL
+        "git clone --depth 1 -b $branch $(echo $repo_url | sed -e 's/git@github\.com:/https:\/\/github.com\//' -e 's/\.git$//')"
+        
+        # Strategy 4: Raw HTTP clone (last resort)
+        "git clone --depth 1 -b $branch $(echo $repo_url | sed 's/https:\/\//http:\/\//')"
+    )
+
+    # Try each clone strategy
+    for strategy in "${clone_strategies[@]}"; do
+        log "🔄 Trying clone strategy: $strategy"
+        
+        # Suppress all output, we'll handle logging
+        if timeout 300 bash -c "$strategy" >/dev/null 2>&1; then
+            clone_success=true
+            break
         fi
-        if [ -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
-            log "✅ $name installed successfully"
-        else
-            log "⚠️  $name may be missing __init__.py"
-        fi
+    done
+
+    # Check if clone was successful
+    if [ "$clone_success" = false ]; then
+        error_exit "Failed to clone $name from $repo_url using all available strategies"
+    fi
+
+    # Install Python dependencies
+    if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
+        log "📦 Installing Python dependencies for $name"
+        timeout 600 pip install --no-cache-dir -r "$CUSTOM_NODES_DIR/$name/requirements.txt" || {
+            log "⚠️ Warning: Some dependencies for $name failed to install"
+        }
+    fi
+
+    # Verify installation
+    if [ ! -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
+        log "⚠️ $name may be incomplete (missing __init__.py)"
     else
-        log "❌ Failed to clone $name from $repo_url"
+        log "✅ $name installed successfully"
     fi
 }
 
-log "🔧 Installing core extensions..."
-install_extension_git "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
-install_extension_git "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
-install_extension_git "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
+# Main installation process
+main() {
+    # Trap errors
+    trap 'error_exit "Script failed at line $LINENO"' ERR
 
-log "✨ Installing additional extensions..."
-install_extension_git "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
-install_extension_git "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
-install_extension_git "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree.git"
-install_extension_git "ComfyUI_ControlNet" "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
-install_extension_git "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
-install_extension_git "ComfyUI-WanVideoWrapper" "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+    # Initial cleanup
+    cleanup
 
-log "📚 Installing global Python dependencies for extensions..."
-pip install --upgrade pip
-pip install opencv-python onnxruntime onnx transformers accelerate safetensors
-pip install insightface timm fairscale prettytable ultralytics
+    # Verify git and pip are available
+    command -v git >/dev/null 2>&1 || error_exit "Git is not installed"
+    command -v pip >/dev/null 2>&1 || error_exit "Pip is not installed"
 
-log "📂 Summary of installed extensions:"
-for dir in "$CUSTOM_NODES_DIR"/*; do
-    if [ -d "$dir" ]; then
-        if [ -f "$dir/__init__.py" ]; then
-            log "  - $(basename "$dir") (✅ ready)"
-        else
-            log "  - $(basename "$dir") (⚠️ possibly incomplete)"
+    # Configure Git to avoid prompts
+    git config --global core.askpass true
+    export GIT_TERMINAL_PROMPT=0
+
+    log "🔧 Installing core extensions..."
+    
+    # List of extensions with their repositories
+    local extensions=(
+        "ComfyUI-Manager:https://github.com/ltdrdata/ComfyUI-Manager.git"
+        "ComfyUI-Impact-Pack:https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
+        "ComfyUI-WAN-Suite:https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
+        "comfyui-nodes-base:https://github.com/Acly/comfyui-nodes-base.git"
+        "ComfyUI_IPAdapter_plus:https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
+        "comfyui-nodes-rgthree:https://github.com/rgthree/comfyui-nodes-rgthree.git"
+        "ComfyUI_ControlNet:https://github.com/Fannovel16/comfyui_controlnet_aux.git"
+        "ComfyUI-VideoHelperSuite:https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        "ComfyUI-WanVideoWrapper:https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+    )
+
+    # Install each extension
+    for ext in "${extensions[@]}"; do
+        IFS=':' read -r name repo <<< "$ext"
+        install_extension "$name" "$repo"
+    done
+
+    # Global dependency installation
+    log "📚 Installing global Python dependencies..."
+    pip install --upgrade pip
+
+    # Essential dependencies for most ComfyUI extensions
+    local global_deps=(
+        "opencv-python"
+        "onnxruntime"
+        "onnx"
+        "transformers"
+        "accelerate"
+        "safetensors"
+        "insightface"
+        "timm"
+        "fairscale"
+        "prettytable"
+        "ultralytics"
+    )
+
+    for dep in "${global_deps[@]}"; do
+        pip install --no-cache-dir "$dep" || {
+            log "⚠️ Warning: Failed to install $dep"
+        }
+    done
+
+    # Final summary
+    log "📂 Installed Extensions:"
+    for dir in "$CUSTOM_NODES_DIR"/*; do
+        if [ -d "$dir" ]; then
+            if [ -f "$dir/__init__.py" ]; then
+                echo "  ✅ $(basename "$dir")"
+            else
+                echo "  ⚠️ $(basename "$dir") (possibly incomplete)"
+            fi
         fi
-    fi
-done
+    done
 
-log "🚀 ComfyUI extensions setup complete!"
-log "▶ To start ComfyUI, run: cd /workspace && ./start_comfyui.sh"
-log "🌐 Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
+    log "🚀 ComfyUI extensions installation complete!"
+    log "▶ Ready to start ComfyUI"
+}
+
+# Run the main function
+main
