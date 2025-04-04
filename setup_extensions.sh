@@ -27,8 +27,15 @@ install_extension_tarball() {
 
     log "📦 Downloading and extracting $name from tarball..."
     curl -L "$tar_url" -o "/tmp/${name}.tar.gz"
+
+    # Try extracting the tarball, fallback to .zip if tar.gz fails
     mkdir -p "$CUSTOM_NODES_DIR/$name"
-    tar -xzf "/tmp/${name}.tar.gz" --strip-components=1 -C "$CUSTOM_NODES_DIR/$name"
+    if tar -xzf "/tmp/${name}.tar.gz" --strip-components=1 -C "$CUSTOM_NODES_DIR/$name"; then
+        log "📦 Extracted $name successfully"
+    else
+        log "⚠️ Tarball failed, trying ZIP format for $name..."
+        unzip "/tmp/${name}.tar.gz" -d "$CUSTOM_NODES_DIR/$name"
+    fi
 
     if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
         log "📦 Installing Python dependencies for $name"
@@ -68,7 +75,7 @@ install_extension_git() {
 log "🔧 Installing core extensions..."
 install_extension_git "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
 install_extension_git "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
-install_extension_tarball "ComfyUI-WAN-Suite" "https://codeload.github.com/WASasquatch/ComfyUI-WAN-Suite/tar.gz/refs/heads/main"
+install_extension_tarball "ComfyUI-WAN-Suite" "https://codeload.github.com/WASasquatch/ComfyUI-WAN-Suite/legacy.tar.gz/main"
 
 log "✨ Installing additional extensions..."
 install_extension_git "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
