@@ -18,4 +18,10 @@ The `setup_comfyui.sh` script will:
 In your Vast.ai instance creation, use the following onstart command:
 
 ```bash
-cd /workspace && curl -o setup_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh && chmod +x setup_comfyui.sh && ./setup_comfyui.sh > /workspace/setup.log 2>&1
+cd /workspace
+# Edit the script to ensure it uses the correct URLs for git clone operations
+sed -i 's/git clone /git clone --depth 1 https:\/\//g' setup_comfyui.sh
+# Explicitly fix the ComfyUI repo URL
+sed -i 's/git clone --depth 1 https:\/\/https:\/\/github.com/git clone --depth 1 https:\/\/github.com/g' setup_comfyui.sh
+# Run the modified script
+./setup_comfyui.sh
