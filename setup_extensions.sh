@@ -1,6 +1,6 @@
 #!/bin/bash
 # 🚀 Advanced ComfyUI Extensions Installer
-# Robust installation with multiple fallback mechanisms
+# Robust installation with comprehensive download strategies
 
 set -euo pipefail
 
@@ -31,56 +31,93 @@ cleanup() {
     rm -rf /tmp/extensions/*
 }
 
+# Advanced download diagnostics
+debug_download() {
+    local name="$1"
+    local download_url="$2"
+    local output_file="/tmp/extensions/${name}.zip"
+
+    log "🕵️ Debugging download for $name"
+    
+    # Verbose curl download
+    log "📡 Downloading from: $download_url"
+    
+    # Detailed curl with verbose output
+    curl_output=$(curl -v -L -f -o "$output_file" "$download_url" 2>&1)
+    curl_exit_code=$?
+
+    # Log curl details
+    log "🔍 Curl verbose output:"
+    echo "$curl_output"
+
+    # Check download result
+    if [ $curl_exit_code -ne 0 ]; then
+        log "❌ Curl download failed with exit code $curl_exit_code"
+        return 1
+    fi
+
+    # Check file existence and size
+    if [ ! -f "$output_file" ]; then
+        log "❌ No file was downloaded"
+        return 1
+    fi
+
+    local file_size=$(stat -c%s "$output_file")
+    if [ $file_size -eq 0 ]; then
+        log "❌ Downloaded file is empty"
+        return 1
+    fi
+
+    # Try to determine file type
+    file_type=$(file -b "$output_file")
+    log "📄 File type: $file_type"
+
+    return 0
+}
+
 # Advanced manual download function
 advanced_download_extension() {
     local name="$1"
     local repo_url="$2"
     local branch="${3:-main}"
     local download_urls=(
-        # Primary download URL
+        # Primary download URL formats
         "https://github.com/$(echo "$repo_url" | cut -d'/' -f4-5 | sed 's/\.git$//')/archive/refs/heads/${branch}.zip"
-        
-        # Alternate download URL formats
         "https://codeload.github.com/$(echo "$repo_url" | cut -d'/' -f4-5 | sed 's/\.git$//')/zip/refs/heads/${branch}"
+        "https://github.com/$(echo "$repo_url" | cut -d'/' -f4-5 | sed 's/\.git$//')/zipball/${branch}"
     )
 
     log "🚨 Attempting advanced download for $name"
 
     # Try multiple download methods
     for download_url in "${download_urls[@]}"; do
-        log "📦 Trying to download from $download_url"
-        
         # Clean previous download attempts
         rm -f "/tmp/extensions/${name}.zip"
         
-        # Try downloading with multiple tools
-        if curl -L -f -o "/tmp/extensions/${name}.zip" "$download_url"; then
-            # Verify download
-            if [ ! -s "/tmp/extensions/${name}.zip" ]; then
-                log "⚠️ Downloaded file is empty. Trying next URL..."
-                continue
-            fi
+        # Attempt download with diagnostics
+        if debug_download "$name" "$download_url"; then
+            # Try multiple extraction methods
+            local extraction_methods=(
+                "unzip -q /tmp/extensions/${name}.zip -d /tmp/extensions"
+                "tar -xf /tmp/extensions/${name}.zip -C /tmp/extensions"
+            )
 
-            # Try to unzip with multiple methods
-            if unzip -q "/tmp/extensions/${name}.zip" -d "/tmp/extensions"; then
-                # Find and move extracted directory
-                extracted_dir=$(find "/tmp/extensions" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
-                if [ -n "$extracted_dir" ]; then
-                    mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
-                    log "✅ Successfully downloaded and extracted $name"
-                    return 0
+            for method in "${extraction_methods[@]}"; do
+                log "🔓 Trying extraction: $method"
+                
+                # Attempt extraction
+                if $method; then
+                    # Find and move extracted directory
+                    extracted_dir=$(find "/tmp/extensions" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
+                    if [ -n "$extracted_dir" ]; then
+                        mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
+                        log "✅ Successfully downloaded and extracted $name"
+                        return 0
+                    fi
+                else
+                    log "❌ Extraction failed with method: $method"
                 fi
-            fi
-
-            # Fallback extraction method
-            if tar -xf "/tmp/extensions/${name}.zip" -C "/tmp/extensions"; then
-                extracted_dir=$(find "/tmp/extensions" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
-                if [ -n "$extracted_dir" ]; then
-                    mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
-                    log "✅ Successfully downloaded and extracted $name using tar"
-                    return 0
-                fi
-            fi
+            done
         fi
     done
 
@@ -154,6 +191,7 @@ main() {
     command -v curl >/dev/null 2>&1 || error_exit "Curl is not installed"
     command -v unzip >/dev/null 2>&1 || error_exit "Unzip is not installed"
     command -v tar >/dev/null 2>&1 || error_exit "Tar is not installed"
+    command -v file >/dev/null 2>&1 || error_exit "File utility is not installed"
 
     # Configure Git to avoid prompts
     git config --global core.askpass true
