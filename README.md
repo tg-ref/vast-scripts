@@ -49,6 +49,34 @@ cd /workspace && curl -L -o setup_extensions.sh https://raw.githubusercontent.co
 cd /workspace && curl -L -o start_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/start_comfyui.sh && chmod +x start_comfyui.sh && ./start_comfyui.sh
 ```
 
+## Installed Extensions
+
+The setup includes the following popular extensions:
+
+### Core Extensions
+- **ComfyUI-Manager** - Extension manager for installing additional nodes
+- **ComfyUI-Impact-Pack** - Collection of useful nodes for image processing and workflows
+- **ComfyUI-WAN-Suite 2.1** - Comprehensive suite of utility nodes
+- **ComfyUI-Nodes-Base** - Base set of additional nodes
+
+### Additional Extensions
+- **ComfyUI_IPAdapter_Plus** - Enhanced IP-Adapter integration
+- **comfyui-nodes-rgthree** - Quality of life improvements and workflow organization
+- **ComfyUI-Creative-Interpolation** - Animation and interpolation tools
+- **comfyui_controlnet_aux** - Additional ControlNet preprocessing nodes
+
+## Dependencies
+
+The setup installs these important dependencies:
+- PyTorch with CUDA support
+- xformers for efficient attention mechanisms
+- opencv-python for image processing
+- ultralytics for YOLO object detection
+- insightface for face detection and analysis
+- onnxruntime and onnx for neural network execution
+- transformers for text processing
+- Other supporting libraries for AI functionality
+
 ## Access and Logs
 - ComfyUI Interface: `http://<instance-ip>:8188`
 - Universal Setup Logs: `/workspace/comfyui_diagnostic.log`
@@ -60,6 +88,12 @@ cd /workspace && curl -L -o start_comfyui.sh https://raw.githubusercontent.com/D
 - Check Python environment with `which python`
 - Inspect diagnostic logs for specific errors
 - Use the universal setup script for consistent deployment
+- If extension installation fails, try running ComfyUI first and install extensions through the UI
+
+## Docker Container Notes
+- These scripts are designed to run in Docker containers on Vast.ai
+- Systemd is not available in these containers, so persistence is handled through alternative methods
+- Extensions are installed via direct download to avoid GitHub authentication issues
 
 ## Customization
 - Modify scripts to add more extensions
@@ -72,4 +106,4 @@ cd /workspace && curl -L -o start_comfyui.sh https://raw.githubusercontent.com/D
 - Compatible GPU (NVIDIA recommended)
 
 ## Contributing
-Open issues or pull requests to improve the scripts.
+Open issues or pull requests to improve the scripts at [GitHub Repository](https://github.com/DnsSrinath/vast-scripts).
