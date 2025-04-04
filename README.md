@@ -18,4 +18,4 @@ The `setup_comfyui.sh` script will:
 In your Vast.ai instance creation, use the following onstart command:
 
 ```bash
-cd /workspace && curl -o setup_comfyui.sh https://raw.githubusercontent.com/yourusername/vast-scripts/main/setup_comfyui.sh && chmod +x setup_comfyui.sh && ./setup_comfyui.sh > /workspace/setup.log 2>&1
+cd /workspace && curl -o setup_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh && chmod +x setup_comfyui.sh && ./setup_comfyui.sh > /workspace/setup.log 2>&1
