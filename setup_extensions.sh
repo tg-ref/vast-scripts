@@ -1,6 +1,6 @@
 #!/bin/bash
-# 🐳 ComfyUI Extensions Installer
-# Handles repository cloning without interactive authentication
+# 🚀 Advanced ComfyUI Extensions Installer
+# Robust cloning with multiple fallback strategies
 
 set -euo pipefail
 
@@ -29,7 +29,44 @@ cleanup() {
     rm -rf "$CUSTOM_NODES_DIR"/*
 }
 
-# Extension installation function with multiple clone strategies
+# Manual download fallback for challenging repositories
+manual_download_extension() {
+    local name="$1"
+    local repo_url="$2"
+    local branch="${3:-main}"
+    local download_url=""
+
+    log "🚨 Attempting manual download for $name"
+
+    # Generate download URL for GitHub repository
+    if [[ "$repo_url" == *"github.com"* ]]; then
+        download_url="${repo_url%\.git}/archive/refs/heads/${branch}.zip"
+    else
+        error_exit "Unsupported repository type for manual download"
+    fi
+
+    # Download and extract
+    log "📦 Downloading from $download_url"
+    if ! curl -L -o "/tmp/${name}.zip" "$download_url"; then
+        error_exit "Failed to download $name"
+    fi
+
+    # Extract to custom nodes directory
+    if ! unzip -q "/tmp/${name}.zip" -d "$CUSTOM_NODES_DIR"; then
+        error_exit "Failed to extract $name"
+    fi
+
+    # Rename extracted directory to match extension name
+    extracted_dir=$(find "$CUSTOM_NODES_DIR" -maxdepth 1 -type d -name "*${name}*" | head -n 1)
+    if [ -n "$extracted_dir" ]; then
+        mv "$extracted_dir" "$CUSTOM_NODES_DIR/$name"
+    fi
+
+    # Clean up
+    rm "/tmp/${name}.zip"
+}
+
+# Extension installation function with advanced fallback
 install_extension() {
     local name="$1"
     local repo_url="$2"
@@ -38,18 +75,18 @@ install_extension() {
 
     log "🔽 Attempting to install $name from $repo_url"
 
-    # Clone strategies array
+    # Clone strategies array (most specific to least specific)
     local clone_strategies=(
-        # Strategy 1: Direct HTTPS clone (most common)
+        # Direct HTTPS clone
         "git clone --depth 1 -b $branch $repo_url $CUSTOM_NODES_DIR/$name"
         
-        # Strategy 2: Shallow clone with no user interaction
+        # No terminal prompt strategy
         "GIT_TERMINAL_PROMPT=0 git clone --depth 1 -b $branch $repo_url $CUSTOM_NODES_DIR/$name"
         
-        # Strategy 3: Convert to public HTTPS URL
+        # Convert SSH to HTTPS
         "git clone --depth 1 -b $branch $(echo $repo_url | sed -e 's/git@github\.com:/https:\/\/github.com\//' -e 's/\.git$//')"
         
-        # Strategy 4: Raw HTTP clone (last resort)
+        # HTTP fallback
         "git clone --depth 1 -b $branch $(echo $repo_url | sed 's/https:\/\//http:\/\//')"
     )
 
@@ -57,16 +94,16 @@ install_extension() {
     for strategy in "${clone_strategies[@]}"; do
         log "🔄 Trying clone strategy: $strategy"
         
-        # Suppress all output, we'll handle logging
         if timeout 300 bash -c "$strategy" >/dev/null 2>&1; then
             clone_success=true
             break
         fi
     done
 
-    # Check if clone was successful
+    # If all clone strategies fail, attempt manual download
     if [ "$clone_success" = false ]; then
-        error_exit "Failed to clone $name from $repo_url using all available strategies"
+        log "❌ Clone strategies failed. Attempting manual download..."
+        manual_download_extension "$name" "$repo_url" "$branch"
     fi
 
     # Install Python dependencies
@@ -93,9 +130,11 @@ main() {
     # Initial cleanup
     cleanup
 
-    # Verify git and pip are available
+    # Verify essential tools
     command -v git >/dev/null 2>&1 || error_exit "Git is not installed"
     command -v pip >/dev/null 2>&1 || error_exit "Pip is not installed"
+    command -v curl >/dev/null 2>&1 || error_exit "Curl is not installed"
+    command -v unzip >/dev/null 2>&1 || error_exit "Unzip is not installed"
 
     # Configure Git to avoid prompts
     git config --global core.askpass true
