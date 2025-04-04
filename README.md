@@ -42,6 +42,33 @@ This repository automates the complete setup of **ComfyUI** on **Vast.ai** insta
 
 ## 🚀 How to Use on Vast.ai
 
+
+# 1. Download and run core ComfyUI setup
+```bash
+cd /workspace
+curl -L -o setup_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_comfyui.sh
+chmod +x setup_comfyui.sh && ./setup_comfyui.sh
+```
+
+# 2. Download and run extension installer
+```bash
+curl -L -o setup_extensions.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/setup_extensions.sh
+chmod +x setup_extensions.sh && ./setup_extensions.sh
+```
+
+# 3. Download base and ControlNet models
+```bash
+curl -L -o download_models.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/download_models.sh
+chmod +x download_models.sh && ./download_models.sh
+```
+
+# 4. Start ComfyUI server manually
+```bash
+curl -L -o start_comfyui.sh https://raw.githubusercontent.com/DnsSrinath/vast-scripts/main/start_comfyui.sh
+chmod +x start_comfyui.sh && ./start_comfyui.sh
+```
+
+
 ### ✅ Universal Setup (Recommended)
 Run this from inside your Vast.ai container:
 
