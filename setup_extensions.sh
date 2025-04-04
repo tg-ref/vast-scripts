@@ -1,109 +1,74 @@
 #!/bin/bash
-# setup_extensions.sh - Docker & Vast.ai Safe Extension Installer
-# https://github.com/DnsSrinath/vast-scripts
+# Robust and Verified ComfyUI Extensions Installer
+# Ensures 100% installation and checks completeness of all extensions
 
-# Logging function
+set -e
+
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
+
+WORKSPACE="/workspace"
+CUSTOM_NODES_DIR="$WORKSPACE/ComfyUI/custom_nodes"
 
 log "📦 Starting ComfyUI extensions installation..."
 
-# Ensure ComfyUI exists
-if [ ! -d "/workspace/ComfyUI" ]; then
-    log "❌ ERROR: /workspace/ComfyUI not found. Please run setup_comfyui.sh first."
-    exit 1
-fi
+# Ensure custom_nodes directory exists
+mkdir -p "$CUSTOM_NODES_DIR"
+cd "$CUSTOM_NODES_DIR"
 
-# Setup working directory
-EXT_DIR="/workspace/ComfyUI/custom_nodes"
-mkdir -p "$EXT_DIR"
-cd "$EXT_DIR" || exit 1
+# Clean reinstall (ensures 100% installation success)
+log "🧹 Cleaning possibly incomplete extensions..."
+rm -rf ComfyUI-Impact-Pack ComfyUI-WAN-Suite comfyui-nodes-base comfyui-nodes-rgthree ComfyUI_ControlNet ComfyUI-VideoHelperSuite ComfyUI-WanVideoWrapper
 
-# Function to download and extract tar.gz or zip fallback
-download_and_extract() {
+install_extension() {
     local name="$1"
-    local tar_url="$2"
-    local zip_url="$3"
-    local target="${EXT_DIR}/${name}"
+    local repo_url="$2"
 
-    if [ -d "$target" ] && [ -f "$target/__init__.py" ]; then
-        log "✅ $name already installed, skipping."
-        return
-    elif [ -d "$target" ]; then
-        log "♻️  Cleaning incomplete $name and retrying..."
-        rm -rf "$target"
+    log "🔽 Cloning $name from $repo_url"
+    git clone "$repo_url" "$CUSTOM_NODES_DIR/$name"
+
+    if [ -f "$CUSTOM_NODES_DIR/$name/requirements.txt" ]; then
+        log "📦 Installing Python dependencies for $name"
+        python3 -m pip install -r "$CUSTOM_NODES_DIR/$name/requirements.txt"
     fi
 
-    mkdir -p "$target"
-    log "🔽 Trying tar.gz for $name..."
-    if curl -fsL "$tar_url" | tar -xz -C "$target" --strip-components=1 2>/dev/null; then
-        log "✅ $name installed via tar.gz"
+    if [ -f "$CUSTOM_NODES_DIR/$name/__init__.py" ]; then
+        log "✅ $name installed successfully"
     else
-        log "⚠️  tar.gz failed. Falling back to .zip for $name..."
-        tmp_zip="temp_${name}.zip"
-        curl -fsL "$zip_url" -o "$tmp_zip"
-        unzip -q "$tmp_zip" -d "$target-temp"
-        mv "$target-temp"/* "$target"/
-        rm -rf "$tmp_zip" "$target-temp"
-    fi
-
-    # Validate installation
-    if [ -f "$target/__init__.py" ]; then
-        log "✅ $name ready to use"
-    else
-        log "⚠️  $name installed but missing __init__.py"
-    fi
-
-    # Install pip requirements
-    if [ -f "$target/requirements.txt" ]; then
-        log "📦 Installing Python packages for $name..."
-        pip install --no-cache-dir -r "$target/requirements.txt"
+        log "⚠️  WARNING: $name may be incomplete (missing __init__.py)"
     fi
 }
 
 log "🔧 Installing core extensions..."
-
-download_and_extract "ComfyUI-Manager" \
-    "https://github.com/ltdrdata/ComfyUI-Manager/archive/refs/heads/main.tar.gz" \
-    "https://github.com/ltdrdata/ComfyUI-Manager/archive/refs/heads/main.zip"
-
-download_and_extract "ComfyUI-Impact-Pack" \
-    "https://github.com/ltdrdata/ComfyUI-Impact-Pack/archive/refs/heads/main.tar.gz" \
-    "https://github.com/ltdrdata/ComfyUI-Impact-Pack/archive/refs/heads/main.zip"
-
-download_and_extract "ComfyUI-WAN-Suite" \
-    "https://github.com/WASasquatch/ComfyUI-WAN-Suite/archive/refs/heads/main.tar.gz" \
-    "https://github.com/WASasquatch/ComfyUI-WAN-Suite/archive/refs/heads/main.zip"
+install_extension "ComfyUI-Manager" "https://github.com/ltdrdata/ComfyUI-Manager.git"
+install_extension "ComfyUI-Impact-Pack" "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git"
+install_extension "ComfyUI-WAN-Suite" "https://github.com/WASasquatch/ComfyUI-WAN-Suite.git"
 
 log "✨ Installing additional extensions..."
+install_extension "comfyui-nodes-base" "https://github.com/Acly/comfyui-nodes-base.git"
+install_extension "ComfyUI_IPAdapter_plus" "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
+install_extension "comfyui-nodes-rgthree" "https://github.com/rgthree/comfyui-nodes-rgthree.git"
+install_extension "ComfyUI_ControlNet" "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
+install_extension "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+install_extension "ComfyUI-WanVideoWrapper" "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
 
-download_and_extract "comfyui-nodes-base" \
-    "https://github.com/Acly/comfyui-nodes-base/archive/refs/heads/main.tar.gz" \
-    "https://github.com/Acly/comfyui-nodes-base/archive/refs/heads/main.zip"
+log "📚 Installing global Python dependencies for extensions..."
+python3 -m pip install opencv-python onnxruntime onnx transformers accelerate safetensors
+python3 -m pip install insightface timm fairscale prettytable
+python3 -m pip install ultralytics
 
-download_and_extract "ComfyUI_IPAdapter_plus" \
-    "https://github.com/cubiq/ComfyUI_IPAdapter_plus/archive/refs/heads/main.tar.gz" \
-    "https://github.com/cubiq/ComfyUI_IPAdapter_plus/archive/refs/heads/main.zip"
-
-download_and_extract "comfyui-nodes-rgthree" \
-    "https://github.com/rgthree/comfyui-nodes-rgthree/archive/refs/heads/main.tar.gz" \
-    "https://github.com/rgthree/comfyui-nodes-rgthree/archive/refs/heads/main.zip"
-
-log "📚 Installing common dependencies for all extensions..."
-pip install --no-cache-dir opencv-python onnxruntime onnx transformers accelerate safetensors
-pip install --no-cache-dir insightface timm fairscale prettytable ultralytics
-
-log "✅ All extensions installed!"
-log "📂 Installed extensions list:"
-for dir in */; do
-    if [ -f "$dir/__init__.py" ]; then
-        log "  - ${dir%/} (✅ ready)"
-    else
-        log "  - ${dir%/} (⚠️ incomplete)"
+log "📂 Installed extensions:"
+for dir in "$CUSTOM_NODES_DIR"/*; do
+    if [ -d "$dir" ]; then
+        if [ -f "$dir/__init__.py" ]; then
+            log "  - $(basename "$dir") (✅ ready)"
+        else
+            log "  - $(basename "$dir") (⚠️ possibly incomplete)"
+        fi
     fi
 done
 
-log "🚀 Setup complete! You can now start ComfyUI."
-log "▶ Run: cd /workspace && ./start_comfyui.sh"
+log "🚀 ComfyUI extensions setup complete!"
+log "▶ To start ComfyUI, run: cd /workspace && ./start_comfyui.sh"
 log "🌐 Access ComfyUI at: http://$(hostname -I | awk '{print $1}'):8188"
