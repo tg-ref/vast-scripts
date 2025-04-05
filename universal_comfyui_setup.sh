@@ -4,7 +4,7 @@
 # Enhanced with WAN 2.1 Image to Video support
 
 # Configuration
-GITHUB_REPO="DnsSrinath/vast-scripts"
+GITHUB_REPO="tg-ref/vast-scripts"
 BASE_RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
 WORKSPACE="/workspace"
 COMFYUI_DIR="${WORKSPACE}/ComfyUI"
